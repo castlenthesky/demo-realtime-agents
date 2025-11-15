@@ -29,7 +29,14 @@ Learn more about deploying your application with the [documentations](https://vi
 
 ## Demo Outline
 1. Demonstrate Socket.io server setup (backend)
+  - Jupyter Cell 1
 2. Demo client sending events to server via postman
+  - Postman demo
 3. Demo server emitting events to client
+  - Jupyter cell 2
 4. Demo Emit and response
-5. Demo Agent streaming
+  - Ping Pong example via website
+5. Demo Agent emitting tool call
+  - Demo agent 
+6. A mouth isn't enough - give your agents hand
+  - Demo tic-tac-toe

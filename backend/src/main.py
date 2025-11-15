@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from socketio import ASGIApp, AsyncServer
 
 from src.config import settings
-from src.events.buttons import ButtonHandler
+from src.events import ButtonHandler, ConnectionHandler
 
 app = FastAPI(title="Realtime Demo")
 
@@ -17,23 +17,15 @@ sio_app = ASGIApp(
   socketio_path="/socket.io/",
 )
 
-
 # #########################################################
-# Socket.IO Connection Events
+# Abstracted Event Handlers
 # #########################################################
-@sio.event
-async def connect(sid: str, environ: dict, auth: dict | None):
-  print(f"Client connected: {sid}")
-  await sio.emit("message", {"message": "Welcome to the server"}, to=sid)
-
-
-@sio.event
-async def disconnect(sid: str):
-  print(f"Client disconnected: {sid}")
+connection_handler = ConnectionHandler(sio)
+button_handler = ButtonHandler(sio)
 
 
 # #########################################################
-# Socket.IO Example Event
+# Example Events for Demo
 # #########################################################
 @sio.event
 async def PING(sid: str, data: dict | None = None):
@@ -41,10 +33,11 @@ async def PING(sid: str, data: dict | None = None):
   await sio.emit("PONG", {}, to=sid)
 
 
-# #########################################################
-# Abstracted Event Handlers
-# #########################################################
-button_handler = ButtonHandler(sio)
+@sio.event
+async def CLIENT_MESSAGE(sid: str, data: dict | None = None):
+  print(f"CLIENT_MESSAGE event: {sid}", "...responding with SERVER_MESSAGE...")
+
+  await sio.emit("SERVER_MESSAGE", {"message": "Hello from the server!"}, to=sid)
 
 
 if __name__ == "__main__":

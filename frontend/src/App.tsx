@@ -12,6 +12,7 @@ function App(props: { children?: any }) {
           <div class="nav-links">
             <A href="/" end>Home</A>
             <A href="/ping">Ping</A>
+            <A href="/tic-tac-toe">Tic Tac Toe</A>
           </div>
           <div class="socket-status">
             <div class="status-row">

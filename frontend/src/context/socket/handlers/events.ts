@@ -10,29 +10,17 @@ export function setupEventListeners(socket: Socket): CleanupFunction {
     console.log('agent_message', message)
   }
 
-  const handleMessage = (message: unknown) => {
-    console.log('message', message)
-  }
-
-  const handleError = (error: Error) => {
-    console.error('Socket error:', error)
-  }
-
-  const handleClose = () => {
-    console.log('Socket closed')
-  }
+  const handleServerMessage = (message: unknown) => {
+    console.log('server_message', message)
+  } 
 
   socket.on('agent_message', handleAgentMessage)
-  socket.on('message', handleMessage)
-  socket.on('error', handleError)
-  socket.on('close', handleClose)
+  socket.on('SERVER_MESSAGE', handleServerMessage)
 
   // Return cleanup function
   return () => {
     socket.off('agent_message', handleAgentMessage)
-    socket.off('message', handleMessage)
-    socket.off('error', handleError)
-    socket.off('close', handleClose)
+    socket.off('SERVER_MESSAGE', handleServerMessage)
   }
 }
 

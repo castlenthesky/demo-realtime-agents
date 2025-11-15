@@ -18,6 +18,11 @@ class Settings(BaseSettings):
 
   API_PORT: int = 8000
 
+  # OpenAI API - Compliant Server Settings
+  OPENAI_API_BASE_URL: str = "http://localhost:1234/v1"
+  OPENAI_API_MODEL_ID: str = "qwen/qwen3-14b"
+  OPENAI_API_KEY: str = ""
+
   @property
   def is_production(self) -> bool:
     """Check if running in production environment."""

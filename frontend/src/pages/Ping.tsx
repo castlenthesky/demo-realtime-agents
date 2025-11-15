@@ -33,7 +33,6 @@ export default function Ping() {
       </button>
       <div class="message-history">
         <h3>Message History</h3>
-        {/* Loop over the messageHistory array and display each message */}
         {messageHistory().length === 0 ? (
           <p class="empty-state">No messages yet. Click PING to start!</p>
         ) : (

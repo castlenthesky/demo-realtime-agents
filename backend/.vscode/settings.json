@@ -56,12 +56,12 @@
   // Icon Examples here: https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/main/images/folderIcons.png
   "material-icon-theme.folders.customClones": [
     {
-      "name": "dagster-definitions",
-      "base": "context",
-      "color": "purple-300",
+      "name": "agents",
+      "base": "robot",
+      "color": "red-300",
       "lightColor": "purple",
       "folderNames": [
-        "definitions"
+        "agents"
       ],
     },
     {
