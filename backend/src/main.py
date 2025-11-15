@@ -38,7 +38,7 @@ async def disconnect(sid: str):
 @sio.event
 async def PING(sid: str, data: dict | None = None):
   print(f"PING event: {sid}")
-  await sio.emit("message", {"message": "PONG"}, to=sid)
+  await sio.emit("PONG", {}, to=sid)
 
 
 # #########################################################

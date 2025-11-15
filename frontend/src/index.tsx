@@ -1,11 +1,11 @@
 /* @refresh reload */
+import { Route, Router } from '@solidjs/router'
 import { render } from 'solid-js/web'
-import { Router, Route } from '@solidjs/router'
-import './index.css'
 import App from './App.tsx'
+import { SocketProvider } from './context/socket'
+import './index.css'
 import Home from './pages/Home'
-import About from './pages/About'
-import { SocketProvider } from './context/socket-provider.tsx'
+import Ping from './pages/Ping'
 
 const root = document.getElementById('root')
 
@@ -13,7 +13,7 @@ render(() => (
   <SocketProvider>
     <Router root={App}>
       <Route path="/" component={Home} />
-      <Route path="/about" component={About} />
+      <Route path="/ping" component={Ping} />
     </Router>
   </SocketProvider>
 ), root!)

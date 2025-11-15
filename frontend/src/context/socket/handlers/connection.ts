@@ -1,14 +1,14 @@
 import type { Socket } from 'socket.io-client'
+import type { ConnectionStateHandlers, CleanupFunction } from '../types'
 
-interface ConnectionHandlers {
-  setConnected: (value: boolean) => void
-  setSocketId: (value: string | null) => void
-}
-
+/**
+ * Sets up connection-related event listeners for the socket
+ * Returns a cleanup function to remove all listeners
+ */
 export function setupConnectionListeners(
   socket: Socket,
-  handlers: ConnectionHandlers
-): () => void {
+  handlers: ConnectionStateHandlers
+): CleanupFunction {
   const { setConnected, setSocketId } = handlers
 
   const handleConnect = () => {

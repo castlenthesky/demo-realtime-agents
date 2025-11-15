@@ -1,6 +1,6 @@
 import { A } from '@solidjs/router'
-import { useSocketStatus } from './context/socket-provider'
 import './App.css'
+import { useSocketStatus } from './context/socket'
 
 function App(props: { children?: any }) {
   const { connected, socketId } = useSocketStatus()
@@ -11,7 +11,7 @@ function App(props: { children?: any }) {
         <nav>
           <div class="nav-links">
             <A href="/" end>Home</A>
-            <A href="/about">About</A>
+            <A href="/ping">Ping</A>
           </div>
           <div class="socket-status">
             <div class="status-row">

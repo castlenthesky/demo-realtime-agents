@@ -2,7 +2,9 @@ import type { Socket } from 'socket.io-client'
 import { io } from 'socket.io-client'
 import type { ParentProps } from 'solid-js'
 import { createContext, createSignal, onCleanup, onMount, useContext } from 'solid-js'
-import { setupConnectionListeners } from './sockets/handle_connection'
+import { SOCKET_CONFIG } from './config'
+import { setupConnectionListeners } from './handlers/connection'
+import { setupEventListeners } from './handlers/events'
 
 interface SocketContextValue {
   socket: Socket
@@ -12,43 +14,34 @@ interface SocketContextValue {
 
 const SocketContext = createContext<SocketContextValue>()
 
+/**
+ * SocketProvider manages the Socket.IO connection and provides it to child components
+ */
 export function SocketProvider(props: ParentProps) {
   const [connected, setConnected] = createSignal(false)
   const [socketId, setSocketId] = createSignal<string | null>(null)
 
-  const socket = io('http://localhost:8085', {
-    transports: ['websocket', 'polling']
-  })
+  // Create socket instance with autoConnect disabled
+  // We'll connect manually in onMount to ensure proper lifecycle management
+  const socket = io(SOCKET_CONFIG.url, SOCKET_CONFIG.options)
 
   onMount(() => {
+    // Connect the socket
     socket.connect()
 
-    // Setup connection listeners
+    // Setup connection state listeners
     const cleanupConnectionListeners = setupConnectionListeners(socket, {
       setConnected,
-      setSocketId
+      setSocketId,
     })
 
-    // Other socket listeners
-    socket.on('agent_message', (message) => {
-      console.log('agent_message', message)
-    })
+    // Setup application event listeners
+    const cleanupEventListeners = setupEventListeners(socket)
 
-    socket.on('message', (message) => {
-      console.log('message', message)
-    })
-
-    socket.on('error', (error) => {
-      console.error('error', error)
-    })
-
-    socket.on('close', () => {
-      console.log('close')
-    })
-
-    // Register cleanup
+    // Register cleanup function
     onCleanup(() => {
       cleanupConnectionListeners()
+      cleanupEventListeners()
       socket.disconnect()
     })
   })
@@ -60,8 +53,11 @@ export function SocketProvider(props: ParentProps) {
   )
 }
 
-// This hook is used to get the socket instance
-export function useSocket() {
+/**
+ * Hook to access the socket instance
+ * @throws {Error} If used outside SocketProvider
+ */
+export function useSocket(): Socket {
   const context = useContext(SocketContext)
   if (!context) {
     throw new Error('useSocket must be used within a SocketProvider')
@@ -69,7 +65,10 @@ export function useSocket() {
   return context.socket
 }
 
-// This hook is used to get the socket status
+/**
+ * Hook to access socket connection status
+ * @throws {Error} If used outside SocketProvider
+ */
 export function useSocketStatus() {
   const context = useContext(SocketContext)
   if (!context) {
@@ -77,7 +76,7 @@ export function useSocketStatus() {
   }
   return {
     connected: context.connected,
-    socketId: context.socketId
+    socketId: context.socketId,
   }
 }
 

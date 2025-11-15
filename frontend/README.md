@@ -26,3 +26,10 @@ Your app is ready to be deployed!
 ## Deployment
 
 Learn more about deploying your application with the [documentations](https://vite.dev/guide/static-deploy.html)
+
+## Demo Outline
+1. Demonstrate Socket.io server setup (backend)
+2. Demo client sending events to server via postman
+3. Demo server emitting events to client
+4. Demo Emit and response
+5. Demo Agent streaming
