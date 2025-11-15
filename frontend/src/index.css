@@ -14,6 +14,9 @@
   
   --color-border: #333;
   
+  --color-success: #4ade80;
+  --color-error: #ef4444;
+  
   /* Spacing */
   --spacing-xs: 0.5rem;
   --spacing-sm: 1rem;
