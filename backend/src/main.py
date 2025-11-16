@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from socketio import ASGIApp, AsyncServer
 
 from src.config import settings
-from src.events import ButtonHandler, ConnectionHandler
+from src.handlers import ButtonHandler, ConnectionHandler
+from src.tic_tac_toe.handler import TicTacToeHandler
 
 app = FastAPI(title="Realtime Demo")
 
@@ -38,6 +39,12 @@ async def CLIENT_MESSAGE(sid: str, data: dict | None = None):
   print(f"CLIENT_MESSAGE event: {sid}", "...responding with SERVER_MESSAGE...")
 
   await sio.emit("SERVER_MESSAGE", {"message": "Hello from the server!"}, to=sid)
+
+
+# #########################################################
+# Game Event Handler for Demo
+# #########################################################
+tic_tac_toe_handler = TicTacToeHandler(sio)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 # src/tic_tac_toe/game.py
+import asyncio
 from enum import Enum
 
 from socketio import AsyncServer
@@ -13,9 +14,15 @@ class Column(Enum):
 
 
 class TicTacToe:
-  def __init__(self, sio: AsyncServer | None = None, sid: str | None = None):
+  def __init__(
+    self,
+    sio: AsyncServer | None = None,
+    sid: str | None = None,
+    loop: asyncio.AbstractEventLoop | None = None,
+  ):
     self.sio = sio
     self.sid = sid
+    self.loop = loop or asyncio.get_event_loop()
     self.board = [[" " for _ in range(3)] for _ in range(3)]
     self.human_player = "X"
     self.ai_player = "O"
@@ -24,19 +31,26 @@ class TicTacToe:
 
   async def emit_board(self):
     if self.sio:
-      await self.sio.emit("BOARD", {"board": self.board}, to=self.sid)
+      print(f"📡 Emitting board_update to {self.sid}")
+      await self.sio.emit("board_update", {"board": self.board}, to=self.sid)
 
-  async def emit_human_move_made(self, row: int, col: Column):
+  async def emit_human_move_made(self, row: int, col: str):
     if self.sio:
       await self.sio.emit("HUMAN_MOVE_MADE", {"row": row, "col": col}, to=self.sid)
 
-  async def emit_ai_move_made(self, row: int, col: Column):
+  async def emit_ai_move_made(self, row: int, col: str):
     if self.sio:
-      await self.sio.emit("AI_MOVE_MADE", {"row": row, "col": col}, to=self.sid)
+      print(f"📡 Emitting ai_tool_executed (make_ai_turn) to {self.sid}: row={row}, col={col}")
+      await self.sio.emit("ai_tool_executed", {"tool": "make_ai_turn", "row": row, "col": col}, to=self.sid)
 
   async def emit_game_over(self, result: str):
     if self.sio:
-      await self.sio.emit("GAME_OVER", {"result": result}, to=self.sid)
+      # Convert result to frontend format
+      winner = None if result == "tie" else (self.winner if self.winner else None)
+      is_tie = result == "tie"
+      data = {"winner": winner, "is_tie": is_tie}
+      print(f"📡 Emitting game_over to {self.sid}: {data}")
+      await self.sio.emit("game_over", data, to=self.sid)
 
   def print_board(self):
     """Print the board with a visually appealing format."""
@@ -55,6 +69,32 @@ class TicTacToe:
       if i < 2:
         print("  ├───┼───┼───┤")
     print("  └───┴───┴───┘\n")
+
+  def get_board_state(self) -> str:
+    """
+    Return the board as a formatted string for the agent to read.
+    Agent tool - called when agent wants to look at the board.
+    """
+    print(f"🔍 Agent calling get_board_state()")
+    lines = ["   a   b   c", "  ┌───┬───┬───┐"]
+    for i, row in enumerate(self.board):
+      cells = [cell if cell != " " else " " for cell in row]
+      row_num = i + 1
+      lines.append(f"{row_num} │ {cells[0]} │ {cells[1]} │ {cells[2]} │")
+      if i < 2:
+        lines.append("  ├───┼───┼───┤")
+    lines.append("  └───┴───┴───┘")
+    board_str = "\n".join(lines)
+    print(f"📋 Board state:\n{board_str}")
+    return board_str
+
+  def get_board(self) -> list[list[str]]:
+    """Return raw board array."""
+    return self.board
+
+  def is_tie(self) -> bool:
+    """Check if game is a tie (board full, no winner)."""
+    return self.is_board_full() and self.winner is None
 
   def _col_to_index(self, col):
     """Convert column letter (a, b, c) or Column enum to internal index (0, 1, 2)."""
@@ -87,7 +127,7 @@ class TicTacToe:
     """Convert internal row index (0, 1, 2) to row number (1, 2, 3)."""
     return index + 1
 
-  def make_human_turn(self, row, col):
+  async def make_human_turn(self, row, col) -> bool:
     """Make human's move. row: 1-3, col: 'a', 'b', or 'c'."""
     # Convert user coordinates to internal indices
     row_idx = self._row_to_index(row)
@@ -99,36 +139,79 @@ class TicTacToe:
       return False
     self.board[row_idx][col_idx] = self.human_player
     self._update_game_state()
+
+    # Emit events
+    await self.emit_human_move_made(row, col)
+    await self.emit_board()
+
+    # Check if game is over
+    if self.game_over:
+      result = "tie" if self.winner is None else ("human" if self.winner == "X" else "ai")
+      await self.emit_game_over(result)
+
     return True
 
-  def make_ai_turn(self, row: int, col: Column) -> bool:
+  def make_ai_turn(self, row: int, col: str) -> str:
     """
-    Make AI's move. row: 1-3, col: Column enum (a, b, or c).
+    Make AI's move. row: 1-3, col: 'a', 'b', or 'c'.
+    Synchronous method for agent tools - uses run_coroutine_threadsafe for emits.
+
     Args:
       row: int - Row number (1-3)
-      col: Column - Column enum (Column.A, Column.B, or Column.C)
+      col: str - Column letter ("a", "b", or "c")
+
     Returns:
-      bool: True if the move was made, False otherwise
-    Raises:
-      ValueError: If the row or col is not a valid input
+      str: Success message with sass, or error message
     """
+    print(f"🎯 Agent calling make_ai_turn(row={row}, col={col})")
+
     if not isinstance(row, int):
-      raise ValueError("row must be an int")
-    if not isinstance(col, Column):
-      raise ValueError("col must be a Column enum")
+      print(f"❌ Invalid row type: {type(row)}")
+      return "Error: row must be an int"
+    if not isinstance(col, str):
+      print(f"❌ Invalid col type: {type(col)}")
+      return "Error: col must be a string"
     if row < 1 or row > 3:
-      raise ValueError("row must be between 1 and 3")
+      print(f"❌ Invalid row value: {row}")
+      return "Error: row must be between 1 and 3"
+
+    col = col.lower()
+    if col not in ["a", "b", "c"]:
+      print(f"❌ Invalid col value: {col}")
+      return "Error: col must be 'a', 'b', or 'c'"
+
     # Convert user coordinates to internal indices
     row_idx = self._row_to_index(row)
     col_idx = self._col_to_index(col)
 
     if row_idx is None or col_idx is None:
-      return False
+      print(f"❌ Failed to convert coordinates")
+      return "Invalid move - coordinates out of bounds!"
+
     if self.board[row_idx][col_idx] != " ":
-      return False
+      print(f"❌ Cell already occupied at {row}{col}")
+      return "Invalid move - that spot is already taken!"
+
+    # Make the move
+    print(f"✅ Placing O at {row}{col}")
     self.board[row_idx][col_idx] = self.ai_player
     self._update_game_state()
-    return True
+
+    # Fire socket events on the correct event loop (from sync context)
+    col_letter = col.lower()
+    print(f"📡 Emitting AI_MOVE_MADE event")
+    asyncio.run_coroutine_threadsafe(
+      self.emit_ai_move_made(row, col_letter), self.loop
+    )
+    print(f"📡 Emitting BOARD event")
+    asyncio.run_coroutine_threadsafe(self.emit_board(), self.loop)
+
+    if self.game_over:
+      result = "tie" if self.winner is None else "ai"
+      print(f"🏁 Game over, emitting GAME_OVER: {result}")
+      asyncio.run_coroutine_threadsafe(self.emit_game_over(result), self.loop)
+
+    return f"Placed O at {row}{col_letter} – your move, human! 😘"
 
   def choose_ai_move(self):
     """Calculate and return the AI's move as (row, col) tuple in user coordinates (1-3, Column enum)."""
