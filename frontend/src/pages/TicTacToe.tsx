@@ -1,7 +1,6 @@
-import { createSignal, onCleanup, onMount, For, Show } from 'solid-js'
+import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import Board, { type CellValue } from '../components/tic_tac_toe/board'
 import { useSocket } from '../context/socket'
-
-type CellValue = 'X' | 'O' | ' '
 
 export default function TicTacToe() {
   const socket = useSocket()
@@ -15,7 +14,6 @@ export default function TicTacToe() {
   const [messages, setMessages] = createSignal<string[]>([])
   const [status, setStatus] = createSignal('Connecting...')
   const [gameOver, setGameOver] = createSignal(false)
-  const [result, setResult] = createSignal<{ winner: string | null; is_tie: boolean } | null>(null)
   const [postGameInput, setPostGameInput] = createSignal('')
 
   // Convert column index to letter
@@ -76,7 +74,6 @@ export default function TicTacToe() {
     socket.emit('restart_game')
     setMessages([])
     setGameOver(false)
-    setResult(null)
     setPostGameInput('')
   }
 
@@ -137,7 +134,6 @@ export default function TicTacToe() {
     socket.on('game_over', (data: { winner: string | null; is_tie: boolean }) => {
       console.log('🏁 Received game_over:', data)
       setGameOver(true)
-      setResult(data)
 
       if (data.is_tie) {
         setStatus("It's a tie! Want a rematch?")
@@ -164,115 +160,40 @@ export default function TicTacToe() {
   })
 
   return (
-    <div class="tic-tac-toe-container" style={{ padding: '2rem', 'max-width': '1200px', margin: '0 auto' }}>
-      <h1 style={{ 'text-align': 'center', 'margin-bottom': '1rem' }}>Tic Tac Toe vs AI Agent</h1>
-
-      {/* Status */}
-      <div
-        class="status-display"
-        style={{
-          'text-align': 'center',
-          'font-size': '1.25rem',
-          'margin-bottom': '1.5rem',
-          'font-weight': 'bold',
-        }}
-      >
-        {status()}
+    <div class="tictactoe-page">
+      <div class="tictactoe-header">
+        <h1 class="tictactoe-title">Tic Tac Toe vs AI Agent</h1>
+        <div class="status-display">{status()}</div>
       </div>
 
-      <div style={{ display: 'flex', gap: '2rem', 'flex-wrap': 'wrap' }}>
-        {/* Game Board */}
-        <div style={{ flex: '1', 'min-width': '300px' }}>
-          <div
-            class="board"
-            style={{
-              display: 'grid',
-              'grid-template-columns': 'repeat(3, 100px)',
-              gap: '8px',
-              'justify-content': 'center',
-            }}
-          >
-            <For each={board()}>
-              {(row, rowIndex) => (
-                <For each={row}>
-                  {(cell, colIndex) => (
-                    <button
-                      id={`cell-${rowIndex()}-${colIndex()}`}
-                      class="cell"
-                      onClick={() => handleCellClick(rowIndex(), colIndex())}
-                      disabled={cell !== ' ' || gameOver() || !isHumanTurn()}
-                      style={{
-                        width: '100px',
-                        height: '100px',
-                        'font-size': '3rem',
-                        'font-weight': 'bold',
-                        border: '2px solid #333',
-                        'border-radius': '8px',
-                        background: cell !== ' ' || gameOver() ? '#2a2a2a' : '#1a1a1a',
-                        color: cell === 'X' ? '#4ade80' : '#f87171',
-                        cursor: cell === ' ' && !gameOver() && isHumanTurn() ? 'pointer' : 'not-allowed',
-                        transition: 'all 0.2s',
-                      }}
-                    >
-                      {cell === 'X' ? '❌' : cell === 'O' ? '⭕' : ''}
-                    </button>
-                  )}
-                </For>
-              )}
-            </For>
-          </div>
+      <div class="tictactoe-content">
+        {/* Game Board Section */}
+        <div class="game-section">
+          <Board
+            board={board}
+            onCellClick={handleCellClick}
+            gameOver={gameOver}
+            isHumanTurn={isHumanTurn}
+          />
 
-          {/* Restart Button */}
-          <button
-            onClick={handleRestart}
-            style={{
-              display: 'block',
-              margin: '1.5rem auto 0',
-              padding: '0.75rem 2rem',
-              'font-size': '1rem',
-              'font-weight': 'bold',
-              background: '#4f46e5',
-              color: 'white',
-              border: 'none',
-              'border-radius': '8px',
-              cursor: 'pointer',
-            }}
-          >
-            New Game
+          <button onClick={handleRestart} class="new-game-button">
+            <span>New Game</span>
           </button>
         </div>
 
-        {/* AI Messages / Chat */}
-        <div style={{ flex: '1', 'min-width': '300px' }}>
-          <h2 style={{ 'margin-bottom': '1rem' }}>AI Commentary</h2>
+        {/* AI Commentary Section */}
+        <div class="chat-section">
+          <h2 class="chat-title">AI Commentary</h2>
 
-          <div
-            class="messages-container"
-            style={{
-              height: '400px',
-              'overflow-y': 'auto',
-              background: '#1a1a1a',
-              border: '2px solid #333',
-              'border-radius': '8px',
-              padding: '1rem',
-              'margin-bottom': '1rem',
-            }}
-          >
+          <div class="messages-container">
+            <Show when={messages().length === 0}>
+              <div class="empty-chat">
+                <p>No messages yet. Start playing to see AI commentary!</p>
+              </div>
+            </Show>
             <For each={messages()}>
               {(message) => (
-                <div
-                  class="message"
-                  style={{
-                    background: message.startsWith('You:') ? '#2563eb' : '#7c3aed',
-                    padding: '0.75rem',
-                    'border-radius': '8px',
-                    'margin-bottom': '0.5rem',
-                    'margin-left': message.startsWith('You:') ? '0' : 'auto',
-                    'margin-right': message.startsWith('You:') ? 'auto' : '0',
-                    'max-width': '85%',
-                    'text-align': message.startsWith('You:') ? 'left' : 'right',
-                  }}
-                >
+                <div class={`chat-message ${message.startsWith('You:') ? 'message-user' : 'message-ai'}`}>
                   {message}
                 </div>
               )}
@@ -281,72 +202,22 @@ export default function TicTacToe() {
 
           {/* Post-Game Chat Input */}
           <Show when={gameOver()}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div class="chat-input-container">
               <input
                 type="text"
+                class="chat-input"
                 value={postGameInput()}
                 onInput={(e) => setPostGameInput(e.currentTarget.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handlePostGameQuery()}
                 placeholder="Ask the AI about the game..."
-                style={{
-                  flex: '1',
-                  padding: '0.75rem',
-                  background: '#2a2a2a',
-                  border: '2px solid #333',
-                  'border-radius': '8px',
-                  color: 'white',
-                  'font-size': '1rem',
-                }}
               />
-              <button
-                onClick={handlePostGameQuery}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  background: '#10b981',
-                  color: 'white',
-                  border: 'none',
-                  'border-radius': '8px',
-                  cursor: 'pointer',
-                  'font-weight': 'bold',
-                }}
-              >
+              <button onClick={handlePostGameQuery} class="chat-send-button">
                 Send
               </button>
             </div>
           </Show>
         </div>
       </div>
-
-      {/* CSS for flash animation */}
-      <style>{`
-        .ai-flash {
-          background: #fbbf24 !important;
-          transition: background 0.6s ease-out;
-        }
-
-        .messages-container::-webkit-scrollbar {
-          width: 8px;
-        }
-
-        .messages-container::-webkit-scrollbar-track {
-          background: #2a2a2a;
-          border-radius: 4px;
-        }
-
-        .messages-container::-webkit-scrollbar-thumb {
-          background: #4f46e5;
-          border-radius: 4px;
-        }
-
-        .cell:hover:not(:disabled) {
-          background: #333 !important;
-          transform: scale(1.05);
-        }
-
-        .cell:active:not(:disabled) {
-          transform: scale(0.95);
-        }
-      `}</style>
     </div>
   )
 }

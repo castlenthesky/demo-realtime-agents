@@ -1,8 +1,5 @@
 # src/tic_tac_toe/game.py
-import asyncio
 from enum import Enum
-
-from socketio import AsyncServer
 
 
 class Column(Enum):
@@ -14,43 +11,23 @@ class Column(Enum):
 
 
 class TicTacToe:
-  def __init__(
-    self,
-    sio: AsyncServer | None = None,
-    sid: str | None = None,
-    loop: asyncio.AbstractEventLoop | None = None,
-  ):
-    self.sio = sio
-    self.sid = sid
-    self.loop = loop or asyncio.get_event_loop()
+  def __init__(self):
     self.board = [[" " for _ in range(3)] for _ in range(3)]
     self.human_player = "X"
     self.ai_player = "O"
     self.winner = None
     self.game_over = False
 
-  async def emit_board(self):
-    if self.sio:
-      print(f"📡 Emitting board_update to {self.sid}")
-      await self.sio.emit("board_update", {"board": self.board}, to=self.sid)
+  def get_board_data(self) -> dict:
+    """Return board data for socket emission."""
+    return {"board": self.board}
 
-  async def emit_human_move_made(self, row: int, col: str):
-    if self.sio:
-      await self.sio.emit("HUMAN_MOVE_MADE", {"row": row, "col": col}, to=self.sid)
-
-  async def emit_ai_move_made(self, row: int, col: str):
-    if self.sio:
-      print(f"📡 Emitting ai_tool_executed (make_ai_turn) to {self.sid}: row={row}, col={col}")
-      await self.sio.emit("ai_tool_executed", {"tool": "make_ai_turn", "row": row, "col": col}, to=self.sid)
-
-  async def emit_game_over(self, result: str):
-    if self.sio:
-      # Convert result to frontend format
-      winner = None if result == "tie" else (self.winner if self.winner else None)
-      is_tie = result == "tie"
-      data = {"winner": winner, "is_tie": is_tie}
-      print(f"📡 Emitting game_over to {self.sid}: {data}")
-      await self.sio.emit("game_over", data, to=self.sid)
+  def get_game_over_data(self) -> dict:
+    """Return game over data for socket emission."""
+    return {
+      "winner": self.winner,
+      "is_tie": self.is_tie(),
+    }
 
   def print_board(self):
     """Print the board with a visually appealing format."""
@@ -127,7 +104,7 @@ class TicTacToe:
     """Convert internal row index (0, 1, 2) to row number (1, 2, 3)."""
     return index + 1
 
-  async def make_human_turn(self, row, col) -> bool:
+  def make_human_turn(self, row, col) -> bool:
     """Make human's move. row: 1-3, col: 'a', 'b', or 'c'."""
     # Convert user coordinates to internal indices
     row_idx = self._row_to_index(row)
@@ -140,21 +117,12 @@ class TicTacToe:
     self.board[row_idx][col_idx] = self.human_player
     self._update_game_state()
 
-    # Emit events
-    await self.emit_human_move_made(row, col)
-    await self.emit_board()
-
-    # Check if game is over
-    if self.game_over:
-      result = "tie" if self.winner is None else ("human" if self.winner == "X" else "ai")
-      await self.emit_game_over(result)
-
     return True
 
   def make_ai_turn(self, row: int, col: str) -> str:
     """
     Make AI's move. row: 1-3, col: 'a', 'b', or 'c'.
-    Synchronous method for agent tools - uses run_coroutine_threadsafe for emits.
+    Synchronous method for agent tools.
 
     Args:
       row: int - Row number (1-3)
@@ -197,21 +165,7 @@ class TicTacToe:
     self.board[row_idx][col_idx] = self.ai_player
     self._update_game_state()
 
-    # Fire socket events on the correct event loop (from sync context)
-    col_letter = col.lower()
-    print(f"📡 Emitting AI_MOVE_MADE event")
-    asyncio.run_coroutine_threadsafe(
-      self.emit_ai_move_made(row, col_letter), self.loop
-    )
-    print(f"📡 Emitting BOARD event")
-    asyncio.run_coroutine_threadsafe(self.emit_board(), self.loop)
-
-    if self.game_over:
-      result = "tie" if self.winner is None else "ai"
-      print(f"🏁 Game over, emitting GAME_OVER: {result}")
-      asyncio.run_coroutine_threadsafe(self.emit_game_over(result), self.loop)
-
-    return f"Placed O at {row}{col_letter} – your move, human! 😘"
+    return f"Placed O at {row}{col} – your move, human! 😘"
 
   def choose_ai_move(self):
     """Calculate and return the AI's move as (row, col) tuple in user coordinates (1-3, Column enum)."""

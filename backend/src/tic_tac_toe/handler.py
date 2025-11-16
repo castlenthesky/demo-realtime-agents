@@ -2,10 +2,9 @@
 import asyncio
 
 from agent_framework import AgentThread, ChatAgent, ChatMessage
-from agent_framework.openai import OpenAIResponsesClient
 from socketio import AsyncServer
 
-from src.config import settings
+from src.tic_tac_toe.agent import create_agent, execute_agent_turn
 from src.tic_tac_toe.game import TicTacToe
 
 # Module-level state dicts for per-connection instances
@@ -20,39 +19,12 @@ async def init_game_and_agent(sio: AsyncServer, sid: str):
   for state_dict in [games, agents, agent_threads]:
     state_dict.pop(sid, None)
 
-  # Create new game instance
-  loop = asyncio.get_event_loop()
-  game = TicTacToe(sio=sio, sid=sid, loop=loop)
+  # Create new game instance (no socket params)
+  game = TicTacToe()
   games[sid] = game
 
-  # Create OpenAI client
-  client = OpenAIResponsesClient(
-    base_url=settings.OPENAI_API_BASE_URL,
-    model_id=settings.OPENAI_API_MODEL_ID,
-    api_key=settings.OPENAI_API_KEY,
-  )
-
-  print(f"🔧 Client config - Base URL: {settings.OPENAI_API_BASE_URL}")
-  print(f"🔧 Client config - Model: {settings.OPENAI_API_MODEL_ID}")
-  print(f"🔧 Client config - API Key present: {bool(settings.OPENAI_API_KEY)}")
-
-  # Create agent with game tools
-  agent = ChatAgent(
-    chat_client=client,
-    name="tic_tac_toe_agent",
-    description="Sassy Tic-Tac-Toe player with perfect memory",
-    instructions="""You are an unbearably smug, sarcastic tic-tac-toe master with perfect memory of the entire game.
-You play as O, and the human plays as X. The human always goes first.
-
-You can call get_board_state() at any time to see the current board.
-When it's your turn, decide your move and call make_ai_turn(row, col) whenever you feel like it – mid-sentence is encouraged for maximum sass.
-
-Be playful, endearing, flirty, and sassy. Taunt the human. Make it fun with good banter!
-
-You will be asked questions after the game ends. Remember every move and every insult you threw.""",
-    temperature=0.7,
-    tools=[game.get_board_state, game.make_ai_turn],
-  )
+  # Create agent using agent.py function
+  agent = create_agent(game)
   agents[sid] = agent
 
   # Create agent thread for conversation persistence
@@ -61,7 +33,7 @@ You will be asked questions after the game ends. Remember every move and every i
   print(f"✅ Created thread for {sid}")
 
   # Send initial board and status
-  await sio.emit("board_update", {"board": game.get_board()}, to=sid)
+  await sio.emit("board_update", game.get_board_data(), to=sid)
   await sio.emit("status_update", {"text": "New game – your move, human."}, to=sid)
   await sio.emit("ai_message", {"text": "Fresh meat. Let's see how fast you lose."}, to=sid)
 
@@ -86,15 +58,25 @@ async def ai_turn(sio: AsyncServer, sid: str, new_message: ChatMessage):
   print(f"📨 Message: {new_message.text}")
 
   try:
+    # Track board state before agent execution to detect moves
+    board_before = [row[:] for row in game.get_board()]  # Deep copy
+
     update_count = 0
-    # Stream agent response WITH THREAD for conversation continuity
-    async for update in agent.run_stream(messages=[new_message], thread=thread):
+    # Stream agent response using agent.py function
+    async for update_dict in execute_agent_turn(agent, thread, new_message):
       update_count += 1
+
+      # Check if this is an error update
+      if update_dict.get("type") == "error":
+        error_text = update_dict.get("error", "Unknown error")
+        await sio.emit("status_update", {"text": f"AI error: {error_text}"}, to=sid)
+        print(f"❌ Agent error: {error_text}")
+        return
 
       # Extract text chunks (commentary/banter)
       text_content = "".join(
         content.get("text", "")
-        for content in update.to_dict().get("contents", [])
+        for content in update_dict.get("contents", [])
         if content.get("type") == "text"
       )
 
@@ -104,12 +86,34 @@ async def ai_turn(sio: AsyncServer, sid: str, new_message: ChatMessage):
 
     print(f"✅ Completed streaming with {update_count} updates")
 
+    # Check if agent made a move by comparing board states
+    board_after = game.get_board()
+    ai_move_made = False
+    move_row = None
+    move_col = None
+
+    for row_idx in range(3):
+      for col_idx in range(3):
+        if board_before[row_idx][col_idx] != board_after[row_idx][col_idx]:
+          if board_after[row_idx][col_idx] == "O":  # AI made a move
+            ai_move_made = True
+            move_row = row_idx + 1  # Convert to 1-3
+            move_col = ["a", "b", "c"][col_idx]
+            break
+      if ai_move_made:
+        break
+
+    # Emit AI move and board update if a move was made
+    if ai_move_made:
+      await sio.emit(
+        "ai_tool_executed", {"tool": "make_ai_turn", "row": move_row, "col": move_col}, to=sid
+      )
+      await sio.emit("board_update", game.get_board_data(), to=sid)
+      print(f"📡 Emitted AI move: {move_row}{move_col}")
+
     # Check if game is over after agent completes turn
     if game.game_over:
-      result_data = {
-        "winner": game.winner,
-        "is_tie": game.is_tie(),
-      }
+      result_data = game.get_game_over_data()
       await sio.emit("game_over", result_data, to=sid)
       print(f"🏁 Game over: {result_data}")
 
@@ -131,12 +135,12 @@ class TicTacToeHandler:
   def _register_handlers(self):
     """Register all socket event handlers."""
 
-    @self.sio.on("join_game")
+    @self.sio.on("join_game")  # type: ignore
     async def handle_join_game(sid):
       print(f"Client joining tic-tac-toe game: {sid}")
       await init_game_and_agent(self.sio, sid)
 
-    @self.sio.on("human_move")
+    @self.sio.on("human_move")  # type: ignore
     async def handle_human_move(sid, data):
       game = games.get(sid)
       thread = agent_threads.get(sid)
@@ -160,11 +164,20 @@ class TicTacToeHandler:
 
       print(f"👤 Human move: {row}{col} for {sid}")
 
-      # Make human move
-      success = await game.make_human_turn(row, col)
+      # Make human move (synchronous now)
+      success = game.make_human_turn(row, col)
 
       if not success:
         await self.sio.emit("invalid_move", {"reason": "Invalid move"}, to=sid)
+        return
+
+      # Emit human move event and board update
+      await self.sio.emit("HUMAN_MOVE_MADE", {"row": row, "col": col}, to=sid)
+      await self.sio.emit("board_update", game.get_board_data(), to=sid)
+
+      # Check if game is over after human move
+      if game.game_over:
+        await self.sio.emit("game_over", game.get_game_over_data(), to=sid)
         return
 
       # Tell the agent what the human did
@@ -179,12 +192,12 @@ class TicTacToeHandler:
       if not game.is_game_over():
         asyncio.create_task(ai_turn(self.sio, sid, human_move_msg))
 
-    @self.sio.on("restart_game")
+    @self.sio.on("restart_game")  # type: ignore
     async def handle_restart(sid):
       print(f"Restarting game for {sid}")
       await init_game_and_agent(self.sio, sid)
 
-    @self.sio.on("post_game_query")
+    @self.sio.on("post_game_query")  # type: ignore
     async def handle_post_game_query(sid, data):
       thread = agent_threads.get(sid)
 
@@ -206,11 +219,3 @@ class TicTacToeHandler:
 
       # Reuse same ai_turn function - works for post-game too!
       asyncio.create_task(ai_turn(self.sio, sid, query_msg))
-
-    @self.sio.on("disconnect")
-    async def handle_disconnect(sid):
-      print(f"Client disconnected from tic-tac-toe: {sid}")
-      # Clean up state
-      games.pop(sid, None)
-      agents.pop(sid, None)
-      agent_threads.pop(sid, None)
