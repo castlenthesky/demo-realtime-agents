@@ -38,6 +38,37 @@ async def init_game_and_agent(sio: AsyncServer, sid: str):
   await sio.emit("ai_message", {"text": "Fresh meat. Let's see how fast you lose."}, to=sid)
 
 
+async def notify_agent_game_over(sio: AsyncServer, sid: str, game: TicTacToe):
+  """
+  Notify the agent about the game result and let it respond.
+  This adds the game result to the agent's message history.
+  """
+  thread = agent_threads.get(sid)
+  if not thread:
+    print(f"⚠️ No thread found for game over notification: {sid}")
+    return
+
+  # Format game result message
+  result_data = game.get_game_over_data()
+  if result_data["is_tie"]:
+    result_msg = "The game ended in a tie! No winner this time."
+  elif result_data["winner"] == "O":
+    result_msg = "You won! The flesh bag has been defeated!"
+  else:
+    result_msg = "The Flesh Bag won! Game over - you might not be so superior after all..."
+
+  print(f"📢 Notifying agent of game result: {result_msg}")
+
+  # Create message with game result
+  game_over_msg = ChatMessage(role="user", text=result_msg)
+
+  # Update status
+  await sio.emit("status_update", {"text": "AI is responding to game result..."}, to=sid)
+
+  # Let agent respond to the game result
+  asyncio.create_task(ai_turn(sio, sid, game_over_msg))
+
+
 async def ai_turn(sio: AsyncServer, sid: str, new_message: ChatMessage):
   """
   Execute AI turn with streaming commentary and tool calls.
@@ -60,6 +91,8 @@ async def ai_turn(sio: AsyncServer, sid: str, new_message: ChatMessage):
   try:
     # Track board state before agent execution to detect moves
     board_before = [row[:] for row in game.get_board()]  # Deep copy
+    move_emitted = False  # Track if we've already emitted a move to avoid duplicates
+    game_over_emitted = False  # Track if we've already emitted game over
 
     update_count = 0
     # Stream agent response using agent.py function
@@ -84,38 +117,46 @@ async def ai_turn(sio: AsyncServer, sid: str, new_message: ChatMessage):
         await sio.emit("ai_message", {"text": text_content}, to=sid)
         print(f"💬 Sent text: {text_content[:50]}...")
 
+      # Check for board state changes DURING streaming (real-time detection)
+      if not move_emitted:
+        board_current = game.get_board()
+        for row_idx in range(3):
+          for col_idx in range(3):
+            if board_before[row_idx][col_idx] != board_current[row_idx][col_idx]:
+              if board_current[row_idx][col_idx] == "O":  # AI made a move
+                move_row = row_idx + 1  # Convert to 1-3
+                move_col = ["a", "b", "c"][col_idx]
+                # Emit immediately when detected
+                await sio.emit(
+                  "ai_tool_executed",
+                  {"tool": "make_ai_turn", "row": move_row, "col": move_col},
+                  to=sid,
+                )
+                await sio.emit("board_update", game.get_board_data(), to=sid)
+                print(f"📡 Emitted AI move immediately: {move_row}{move_col}")
+                move_emitted = True
+                break
+          if move_emitted:
+            break
+
+      # Check for game over DURING streaming
+      if not game_over_emitted and game.game_over:
+        result_data = game.get_game_over_data()
+        await sio.emit("game_over", result_data, to=sid)
+        print(f"🏁 Game over detected during streaming: {result_data}")
+        game_over_emitted = True
+        # Notify agent about game result
+        await notify_agent_game_over(sio, sid, game)
+
     print(f"✅ Completed streaming with {update_count} updates")
 
-    # Check if agent made a move by comparing board states
-    board_after = game.get_board()
-    ai_move_made = False
-    move_row = None
-    move_col = None
-
-    for row_idx in range(3):
-      for col_idx in range(3):
-        if board_before[row_idx][col_idx] != board_after[row_idx][col_idx]:
-          if board_after[row_idx][col_idx] == "O":  # AI made a move
-            ai_move_made = True
-            move_row = row_idx + 1  # Convert to 1-3
-            move_col = ["a", "b", "c"][col_idx]
-            break
-      if ai_move_made:
-        break
-
-    # Emit AI move and board update if a move was made
-    if ai_move_made:
-      await sio.emit(
-        "ai_tool_executed", {"tool": "make_ai_turn", "row": move_row, "col": move_col}, to=sid
-      )
-      await sio.emit("board_update", game.get_board_data(), to=sid)
-      print(f"📡 Emitted AI move: {move_row}{move_col}")
-
-    # Check if game is over after agent completes turn
-    if game.game_over:
+    # Final check for game over (in case it wasn't detected during streaming)
+    if not game_over_emitted and game.game_over:
       result_data = game.get_game_over_data()
       await sio.emit("game_over", result_data, to=sid)
       print(f"🏁 Game over: {result_data}")
+      # Notify agent about game result
+      await notify_agent_game_over(sio, sid, game)
 
   except Exception as e:
     print(f"❌ Agent error for {sid}: {e}")
@@ -178,11 +219,14 @@ class TicTacToeHandler:
       # Check if game is over after human move
       if game.game_over:
         await self.sio.emit("game_over", game.get_game_over_data(), to=sid)
+        # Notify agent about game result
+        await notify_agent_game_over(self.sio, sid, game)
         return
 
-      # Tell the agent what the human did
+      # Tell the agent what the human did - encourage immediate response
       human_move_msg = ChatMessage(
-        role="user", text=f"I just placed X at position {row}{col}. Your turn! Be sassy!"
+        role="user",
+        text=f"I just placed X at position {row}{col}. Your turn! Start talking immediately and keep speaking until you make your move. Be sassy!",
       )
 
       # Update status

@@ -1,5 +1,6 @@
-import { createSignal, For, onCleanup, onMount, Show } from 'solid-js'
+import { createSignal, onCleanup, onMount } from 'solid-js'
 import Board, { type CellValue } from '../components/tic_tac_toe/board'
+import GameChat from '../components/tic_tac_toe/game_chat'
 import { useSocket } from '../context/socket'
 
 export default function TicTacToe() {
@@ -11,10 +12,8 @@ export default function TicTacToe() {
     [' ', ' ', ' '],
     [' ', ' ', ' '],
   ])
-  const [messages, setMessages] = createSignal<string[]>([])
   const [status, setStatus] = createSignal('Connecting...')
   const [gameOver, setGameOver] = createSignal(false)
-  const [postGameInput, setPostGameInput] = createSignal('')
 
   // Convert column index to letter
   const colIndexToLetter = (index: number): string => {
@@ -72,19 +71,7 @@ export default function TicTacToe() {
   // Handle restart
   const handleRestart = () => {
     socket.emit('restart_game')
-    setMessages([])
     setGameOver(false)
-    setPostGameInput('')
-  }
-
-  // Handle post-game query
-  const handlePostGameQuery = () => {
-    const query = postGameInput().trim()
-    if (!query) return
-
-    socket.emit('post_game_query', { query })
-    setMessages(prev => [...prev, `You: ${query}`])
-    setPostGameInput('')
   }
 
   // Flash animation for AI moves
@@ -113,11 +100,6 @@ export default function TicTacToe() {
     socket.on('status_update', (data: { text: string }) => {
       console.log('📢 Received status_update:', data.text)
       setStatus(data.text)
-    })
-
-    socket.on('ai_message', (data: { text: string }) => {
-      console.log('💬 Received ai_message:', data.text)
-      setMessages(prev => [...prev, data.text])
     })
 
     socket.on('ai_tool_executed', (data: { tool: string; row: number; col: string }) => {
@@ -152,7 +134,6 @@ export default function TicTacToe() {
     onCleanup(() => {
       socket.off('board_update')
       socket.off('status_update')
-      socket.off('ai_message')
       socket.off('ai_tool_executed')
       socket.off('game_over')
       socket.off('invalid_move')
@@ -182,41 +163,7 @@ export default function TicTacToe() {
         </div>
 
         {/* AI Commentary Section */}
-        <div class="chat-section">
-          <h2 class="chat-title">AI Commentary</h2>
-
-          <div class="messages-container">
-            <Show when={messages().length === 0}>
-              <div class="empty-chat">
-                <p>No messages yet. Start playing to see AI commentary!</p>
-              </div>
-            </Show>
-            <For each={messages()}>
-              {(message) => (
-                <div class={`chat-message ${message.startsWith('You:') ? 'message-user' : 'message-ai'}`}>
-                  {message}
-                </div>
-              )}
-            </For>
-          </div>
-
-          {/* Post-Game Chat Input */}
-          <Show when={gameOver()}>
-            <div class="chat-input-container">
-              <input
-                type="text"
-                class="chat-input"
-                value={postGameInput()}
-                onInput={(e) => setPostGameInput(e.currentTarget.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handlePostGameQuery()}
-                placeholder="Ask the AI about the game..."
-              />
-              <button onClick={handlePostGameQuery} class="chat-send-button">
-                Send
-              </button>
-            </div>
-          </Show>
-        </div>
+        <GameChat gameOver={gameOver} />
       </div>
     </div>
   )
