@@ -1,5 +1,8 @@
 # src/tic_tac_toe/game.py
+import uuid
 from enum import Enum
+
+import src.tic_tac_toe.errors as errors
 
 
 class Column(Enum):
@@ -12,299 +15,209 @@ class Column(Enum):
 
 class TicTacToe:
   def __init__(self):
+    self.game_id = uuid.uuid4()
     self.board = [[" " for _ in range(3)] for _ in range(3)]
-    self.human_player = "X"
-    self.ai_player = "O"
+    self.ai_player: str = "X"
+    self.human_player: str = "O"
+    self.round_number: int = 1
+    self.is_human_turn: bool = True
+    self.is_current_player_turn_completed: bool = False
+    self.is_game_over: bool = False
+    self.winner: str | None = None
+    self.game_over_reason: str | None = None
+
+  def reset(self):
+    self.board = [[" " for _ in range(3)] for _ in range(3)]
+    self.round_number = 1
+    self.is_human_turn = True
+    self.is_current_player_turn_completed = False
+    self.is_game_over = False
     self.winner = None
-    self.game_over = False
-
-  def get_board_data(self) -> dict:
-    """Return board data for socket emission."""
-    return {"board": self.board}
-
-  def get_game_over_data(self) -> dict:
-    """Return game over data for socket emission."""
-    return {
-      "winner": self.winner,
-      "is_tie": self.is_tie(),
-    }
-
-  def print_board(self):
-    """Print the board with a visually appealing format."""
-    print("\n   a   b   c")
-    print("  ┌───┬───┬───┐")
-    for i, row in enumerate(self.board):
-      # Format cells: show number if empty, or X/O if occupied
-      cells = []
-      for cell in row:
-        if cell == " ":
-          cells.append(" ")
-        else:
-          cells.append(cell)
-      row_num = i + 1  # Display 1-3 instead of 0-2
-      print(f"{row_num} │ {cells[0]} │ {cells[1]} │ {cells[2]} │")
-      if i < 2:
-        print("  ├───┼───┼───┤")
-    print("  └───┴───┴───┘\n")
+    self.game_over_reason = None
 
   def get_board_state(self) -> str:
-    """
-    Return the board as a formatted string for the agent to read.
-    Agent tool - called when agent wants to look at the board.
-    """
-    print(f"🔍 Agent calling get_board_state()")
-    lines = ["   a   b   c", "  ┌───┬───┬───┐"]
-    for i, row in enumerate(self.board):
-      cells = [cell if cell != " " else " " for cell in row]
-      row_num = i + 1
-      lines.append(f"{row_num} │ {cells[0]} │ {cells[1]} │ {cells[2]} │")
-      if i < 2:
-        lines.append("  ├───┼───┼───┤")
-    lines.append("  └───┴───┴───┘")
-    board_str = "\n".join(lines)
-    print(f"📋 Board state:\n{board_str}")
-    return board_str
+    board_state = (
+      "    a   b   c\n"
+      + "  ┌───┬───┬───┐\n"
+      + f"1 │ {self.board[0][0]} │ {self.board[0][1]} │ {self.board[0][2]} │\n"
+      + "  ├───┼───┼───┤\n"
+      + f"2 │ {self.board[1][0]} │ {self.board[1][1]} │ {self.board[1][2]} │\n"
+      + "  ├───┼───┼───┤\n"
+      + f"3 │ {self.board[2][0]} │ {self.board[2][1]} │ {self.board[2][2]} │\n"
+      + "  └───┴───┴───┘\n"
+      + f"Round {self.round_number}\n"
+      + f"Current player: {'Human' if self.is_human_turn else 'AI'}\n"
+      + f"Current player turn completed: {'Yes' if self.is_current_player_turn_completed else 'No'}\n"
+      + f"Winner: {'Human' if self.winner == self.human_player else 'AI' if self.winner == self.ai_player else 'None'}\n"
+      + f"Game over: {'Yes' if self.is_game_over else 'No'}\n"
+      + f"{'Game over reason: ' + self.game_over_reason + '\n ' if self.game_over_reason else ''}"
+    )
+    print(board_state)
+    return board_state
 
-  def get_board(self) -> list[list[str]]:
-    """Return raw board array."""
-    return self.board
-
-  def is_tie(self) -> bool:
-    """Check if game is a tie (board full, no winner)."""
-    return self.is_board_full() and self.winner is None
-
-  def _col_to_index(self, col):
-    """Convert column letter (a, b, c) or Column enum to internal index (0, 1, 2)."""
-    # Handle Enum
-    if isinstance(col, Column):
-      col = col.value
-    # Handle string
-    if isinstance(col, str):
-      col = col.lower()
-      if col == "a":
-        return 0
-      elif col == "b":
-        return 1
-      elif col == "c":
-        return 2
-    return None
-
-  def _index_to_col(self, index):
-    """Convert internal column index (0, 1, 2) to letter (a, b, c)."""
-    return ["a", "b", "c"][index]
-
-  def _row_to_index(self, row):
-    """Convert row number (1, 2, 3) to internal index (0, 1, 2)."""
-    if isinstance(row, int):
-      if 1 <= row <= 3:
-        return row - 1
-    return None
-
-  def _index_to_row(self, index):
-    """Convert internal row index (0, 1, 2) to row number (1, 2, 3)."""
-    return index + 1
-
-  def make_human_turn(self, row, col) -> bool:
-    """Make human's move. row: 1-3, col: 'a', 'b', or 'c'."""
-    # Convert user coordinates to internal indices
-    row_idx = self._row_to_index(row)
-    col_idx = self._col_to_index(col)
-
-    if row_idx is None or col_idx is None:
-      return False
-    if self.board[row_idx][col_idx] != " ":
-      return False
-    self.board[row_idx][col_idx] = self.human_player
-    self._update_game_state()
-
+  def _is_player_move_valid(self, player: str, row: int, col: Column) -> bool:
+    """Private method to validate a player move."""
+    # Check if it is the player's turn
+    if self.is_human_turn != (player == self.human_player):
+      raise errors.GameInvalidStateError(f"It is not {player}'s turn!")
+    # Check if the player identifier is valid
+    if player not in [self.human_player, self.ai_player]:
+      raise errors.InvalidPlayerError(f"Player must be {self.human_player} or {self.ai_player}")
+    # Check if the current player has already moved
+    if self.is_current_player_turn_completed:
+      raise errors.GameInvalidStateError(f"{player} has already moved this turn!")
+    # Check if the game is already over
+    if self.winner or self.is_game_over:
+      raise errors.GameInvalidStateError("Game is already over")
+    # Check if the row is valid
+    if row > 3 or row < 1:
+      raise errors.InvalidMoveError(f"Invalid row: {row}")
+    # Check if the column is valid
+    if col not in Column:
+      raise errors.InvalidMoveError(f"Invalid column: {col}")
+    # Check if the spot is already taken
+    if self.board[row - 1][list(Column).index(col)] != " ":
+      raise errors.InvalidMoveError(f"Row {row}, column {col.value} is already taken")
+    # If all checks pass, return True to indicate the move is valid
     return True
 
-  def make_ai_turn(self, row: int, col: str) -> str:
-    """
-    Make AI's move. row: 1-3, col: 'a', 'b', or 'c'.
-    Synchronous method for agent tools.
+  def _make_player_move(self, player: str, row: int, col: Column) -> bool:
+    """Private method to make a move for the players."""
+    try:
+      if self._is_player_move_valid(player, row, col):
+        # Update the board with the player's move
+        print(
+          f"Updating board at row {row - 1}, column {list(Column).index(Column(col))} with player {player}"
+        )
+        self.board[row - 1][list(Column).index(col)] = player
+        # Lock state to prevent further moves for this player's turn
+        self.is_current_player_turn_completed = True
+        # Check for win state
+        is_game_over = self._check_for_game_over()
+        if is_game_over:
+          return True
+        # Increment the round number
+        self.round_number += 1
+        # Switch the current player
+        self.is_human_turn = not self.is_human_turn
+        # Initialize the next player's turn
+        self.is_current_player_turn_completed = False
+        return True
+    except Exception as e:
+      print(f"Error making player move: {e}")
+      return False
+    return False
 
-    Args:
-      row: int - Row number (1-3)
-      col: str - Column letter ("a", "b", or "c")
+  def make_ai_move(self, row: int, col: Column) -> bool:
+    """Make a move for the AI player."""
+    return self._make_player_move(self.ai_player, row, col)
 
-    Returns:
-      str: Success message with sass, or error message
-    """
-    print(f"🎯 Agent calling make_ai_turn(row={row}, col={col})")
+  def make_human_move(self, row: int, col: Column) -> bool:
+    """Make a move for the human player."""
+    return self._make_player_move(self.human_player, row, col)
 
-    if not isinstance(row, int):
-      print(f"❌ Invalid row type: {type(row)}")
-      return "Error: row must be an int"
-    if not isinstance(col, str):
-      print(f"❌ Invalid col type: {type(col)}")
-      return "Error: col must be a string"
-    if row < 1 or row > 3:
-      print(f"❌ Invalid row value: {row}")
-      return "Error: row must be between 1 and 3"
+  def _check_winner_rows(self) -> bool:
+    """Private method to check for a winner in any row."""
+    for row in self.board:
+      if row.count(self.ai_player) == 3:
+        self.is_game_over = True
+        self.winner = self.ai_player
+        self.game_over_reason = "AI wins"
+        print(f"AI wins by row: {row}")
+        print(self.get_board_state())
+        return True
+      if row.count(self.human_player) == 3:
+        self.is_game_over = True
+        self.winner = self.human_player
+        self.game_over_reason = "Human wins"
+        print(f"Human wins by row: {row}")
+        print(self.get_board_state())
+        return True
+    return False
 
-    col = col.lower()
-    if col not in ["a", "b", "c"]:
-      print(f"❌ Invalid col value: {col}")
-      return "Error: col must be 'a', 'b', or 'c'"
-
-    # Convert user coordinates to internal indices
-    row_idx = self._row_to_index(row)
-    col_idx = self._col_to_index(col)
-
-    if row_idx is None or col_idx is None:
-      print(f"❌ Failed to convert coordinates")
-      return "Invalid move - coordinates out of bounds!"
-
-    if self.board[row_idx][col_idx] != " ":
-      print(f"❌ Cell already occupied at {row}{col}")
-      return "Invalid move - that spot is already taken!"
-
-    # Make the move
-    print(f"✅ Placing O at {row}{col}")
-    self.board[row_idx][col_idx] = self.ai_player
-    self._update_game_state()
-
-    return f"Placed O at {row}{col} – your move, human! 😘"
-
-  def choose_ai_move(self):
-    """Calculate and return the AI's move as (row, col) tuple in user coordinates (1-3, Column enum)."""
-    # Try to win
-    move = self._find_winning_move(self.ai_player)
-    if move:
-      row_idx, col_idx = move
-      col_str = self._index_to_col(col_idx)
-      col_enum = Column[col_str.upper()]  # Convert "a" -> Column.A
-      return (self._index_to_row(row_idx), col_enum)
-
-    # Try to block human from winning
-    move = self._find_winning_move(self.human_player)
-    if move:
-      row_idx, col_idx = move
-      col_str = self._index_to_col(col_idx)
-      col_enum = Column[col_str.upper()]  # Convert "a" -> Column.A
-      return (self._index_to_row(row_idx), col_enum)
-
-    # Take first available spot
-    for row_idx in range(3):
-      for col_idx in range(3):
-        if self.board[row_idx][col_idx] == " ":
-          col_str = self._index_to_col(col_idx)
-          col_enum = Column[col_str.upper()]  # Convert "a" -> Column.A
-          return (self._index_to_row(row_idx), col_enum)
-    return None
-
-  def _find_winning_move(self, player):
-    """Find a winning move for the given player, or None if none exists."""
-    for row in range(3):
-      for col in range(3):
-        if self.board[row][col] == " ":
-          # Try this move
-          self.board[row][col] = player
-          winner = self._check_winner()
-          # Undo the move
-          self.board[row][col] = " "
-          if winner == player:
-            return (row, col)
-    return None
-
-  def _check_winner(self):
-    """Check for a winner and return the winning player, or None."""
-    # Check rows
-    for row in range(3):
-      if self.board[row][0] == self.board[row][1] == self.board[row][2] != " ":
-        return self.board[row][0]
-
-    # Check columns
+  def _check_winner_columns(self) -> bool:
+    """Private method to check for a winner in any column."""
     for col in range(3):
-      if self.board[0][col] == self.board[1][col] == self.board[2][col] != " ":
-        return self.board[0][col]
+      if [self.board[row][col] for row in range(3)].count(self.ai_player) == 3:
+        self.is_game_over = True
+        self.winner = self.ai_player
+        self.game_over_reason = "AI wins"
+        print(f"AI wins by column: {col}")
+        print(self.get_board_state())
+        return True
+      if [self.board[row][col] for row in range(3)].count(self.human_player) == 3:
+        self.is_game_over = True
+        self.winner = self.human_player
+        self.game_over_reason = "Human wins"
+        print(f"Human wins by column: {col}")
+        print(self.get_board_state())
+        return True
+    return False
 
-    # Check diagonal top-left to bottom-right
-    if self.board[0][0] == self.board[1][1] == self.board[2][2] != " ":
-      return self.board[0][0]
+  def _check_winner_diagonals(self) -> bool:
+    """Private method to check for a winner on the diagonal."""
+    if [self.board[i][i] for i in range(3)].count(self.ai_player) == 3:
+      self.is_game_over = True
+      self.winner = self.ai_player
+      self.game_over_reason = "AI wins"
+      print(f"AI wins by diagonal: {[self.board[i][i] for i in range(3)]}")
+      print(self.get_board_state())
+      return True
+    if [self.board[i][i] for i in range(3)].count(self.human_player) == 3:
+      self.is_game_over = True
+      self.winner = self.human_player
+      self.game_over_reason = "Human wins"
+      print(f"Human wins by diagonal: {[self.board[i][i] for i in range(3)]}")
+      print(self.get_board_state())
+      return True
+    return False
 
-    # Check diagonal top-right to bottom-left
-    if self.board[0][2] == self.board[1][1] == self.board[2][0] != " ":
-      return self.board[0][2]
+  def _check_winner_anti_diagonals(self) -> bool:
+    """Private method to check for a winner on the anti-diagonal."""
+    if [self.board[i][2 - i] for i in range(3)].count(self.ai_player) == 3:
+      self.is_game_over = True
+      self.winner = self.ai_player
+      self.game_over_reason = "AI wins"
+      print(f"AI wins by anti-diagonal: {[self.board[i][2 - i] for i in range(3)]}")
+      print(self.get_board_state())
+      return True
+    if [self.board[i][2 - i] for i in range(3)].count(self.human_player) == 3:
+      self.is_game_over = True
+      self.winner = self.human_player
+      self.game_over_reason = "Human wins"
+      print(f"Human wins by anti-diagonal: {[self.board[i][2 - i] for i in range(3)]}")
+      print(self.get_board_state())
+      return True
+    return False
 
-    return None
+  def _check_tie(self) -> bool:
+    """Private method to check for a tie."""
+    if not any(" " in row for row in self.board):
+      self.is_game_over = True
+      self.winner = "Tie"
+      self.game_over_reason = "Tie"
+      print("Game is a tie")
+      print(self.get_board_state())
+      return True
+    return False
 
-  def check_game_over(self):
-    """Check if game is over (has winner or board is full)."""
-    return self._check_winner() is not None or self.is_board_full()
-
-  def is_game_over(self):
-    return self.game_over
-
-  def is_board_full(self):
-    return all(cell != " " for row in self.board for cell in row)
-
-  def _update_game_state(self):
-    """Update game state flags after a move."""
-    winner = self._check_winner()
-    if winner:
-      self.winner = winner
-      self.game_over = True
-    elif self.is_board_full():
-      self.winner = None
-      self.game_over = True
-    else:
-      self.game_over = False
-
-  def get_winner(self):
-    return self.winner
-
-  def get_current_player(self):
-    """Return the player who should move next (X goes first)."""
-    human_count = sum(row.count(self.human_player) for row in self.board)
-    ai_count = sum(row.count(self.ai_player) for row in self.board)
-    # X goes first, so if counts are equal, it's X's turn
-    # If X has fewer moves, it's X's turn
-    if human_count <= ai_count:
-      return self.human_player
-    else:
-      return self.ai_player
-
-
-if __name__ == "__main__":
-  game = TicTacToe()
-  game.print_board()
-  while not game.is_game_over():
-    if game.get_current_player() == game.human_player:
-      while True:
-        try:
-          row_input = input("Enter row (1-3): ").strip()
-          while True:
-            col_input = input("Enter col (a-c): ").strip().lower()
-            if col_input in ["a", "b", "c"]:
-              break
-            else:
-              print("Invalid input! Please enter a, b, or c.")
-          row = int(row_input)
-          if game.make_human_turn(row, col_input):
-            break
-          else:
-            print("Invalid move! That spot is taken or out of bounds. Try again.")
-        except ValueError:
-          print("Invalid input! Please enter row as 1-3 and col as a, b, or c.")
-        except (KeyboardInterrupt, EOFError):
-          print("\nGame cancelled.")
-          exit()
-    else:
-      print("AI's turn...")
-      move = game.choose_ai_move()
-      if move:
-        row, col = move
-        game.make_ai_turn(row, col)
-      else:
-        print("No valid moves available!")
-        break
-    game.print_board()
-
-  # Display game result
-  winner = game.get_winner()
-  if winner:
-    print(f"Game over! Winner: {winner}")
-  else:
-    print("Game over! It's a tie!")
+  def _check_for_game_over(self) -> bool:
+    """Private method to check for game over."""
+    # 1. Check for three in a row, column, or diagonal
+    #   a. Check for three in any row
+    if self._check_winner_rows():
+      return True
+    #   b. Check for three in any column
+    if self._check_winner_columns():
+      return True
+    #   c. Check for three top-left-to-bottom-right diagonal
+    if self._check_winner_diagonals():
+      return True
+    #   d. Check for three top-right-to-bottom-left diagonal
+    if self._check_winner_anti_diagonals():
+      return True
+    # 2. Check if the board is completely filled
+    if self._check_tie():
+      return True
+    # If no winner, the game is not over
+    return False
