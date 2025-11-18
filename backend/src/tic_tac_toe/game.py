@@ -1,21 +1,18 @@
 # src/tic_tac_toe/game.py
-import uuid
-from enum import Enum
+"""Game logic for the tic-tac-toe game."""
+
+from typing import Literal
+
+from socketio import AsyncServer
 
 import src.tic_tac_toe.errors as errors
-
-
-class Column(Enum):
-  """Column identifiers for the tic-tac-toe board."""
-
-  A = "a"
-  B = "b"
-  C = "c"
+from src.tic_tac_toe.models import PlayerMove
 
 
 class TicTacToe:
-  def __init__(self):
-    self.game_id = uuid.uuid4()
+  def __init__(self, sio: AsyncServer, sid: str):
+    self.sio = sio
+    self.sid = sid
     self.board = [[" " for _ in range(3)] for _ in range(3)]
     self.ai_player: str = "X"
     self.human_player: str = "O"
@@ -26,7 +23,7 @@ class TicTacToe:
     self.winner: str | None = None
     self.game_over_reason: str | None = None
 
-  def reset(self):
+  async def reset(self):
     self.board = [[" " for _ in range(3)] for _ in range(3)]
     self.round_number = 1
     self.is_human_turn = True
@@ -34,8 +31,9 @@ class TicTacToe:
     self.is_game_over = False
     self.winner = None
     self.game_over_reason = None
+    await self.get_board_state()
 
-  def get_board_state(self) -> str:
+  async def get_board_state(self) -> str:
     board_state = (
       "    a   b   c\n"
       + "  ┌───┬───┬───┐\n"
@@ -53,9 +51,10 @@ class TicTacToe:
       + f"{'Game over reason: ' + self.game_over_reason + '\n ' if self.game_over_reason else ''}"
     )
     print(board_state)
+    await self.sio.emit("BOARD_STATE_UPDATED", board_state, to=self.sid)
     return board_state
 
-  def _is_player_move_valid(self, player: str, row: int, col: Column) -> bool:
+  def _is_player_move_valid(self, player: str, row: int, col: Literal["a", "b", "c"]) -> bool:
     """Private method to validate a player move."""
     # Check if it is the player's turn
     if self.is_human_turn != (player == self.human_player):
@@ -73,23 +72,23 @@ class TicTacToe:
     if row > 3 or row < 1:
       raise errors.InvalidMoveError(f"Invalid row: {row}")
     # Check if the column is valid
-    if col not in Column:
+    if col not in ["a", "b", "c"]:
       raise errors.InvalidMoveError(f"Invalid column: {col}")
     # Check if the spot is already taken
-    if self.board[row - 1][list(Column).index(col)] != " ":
-      raise errors.InvalidMoveError(f"Row {row}, column {col.value} is already taken")
+    col_index = {"a": 0, "b": 1, "c": 2}[col]
+    if self.board[row - 1][col_index] != " ":
+      raise errors.InvalidMoveError(f"Row {row}, column {col} is already taken")
     # If all checks pass, return True to indicate the move is valid
     return True
 
-  def _make_player_move(self, player: str, row: int, col: Column) -> bool:
+  def _make_player_move(self, player: str, row: int, col: Literal["a", "b", "c"]) -> bool:
     """Private method to make a move for the players."""
     try:
       if self._is_player_move_valid(player, row, col):
         # Update the board with the player's move
-        print(
-          f"Updating board at row {row - 1}, column {list(Column).index(Column(col))} with player {player}"
-        )
-        self.board[row - 1][list(Column).index(col)] = player
+        col_index = {"a": 0, "b": 1, "c": 2}[col]
+        print(f"Updating board at row {row - 1}, column {col_index} with player {player}")
+        self.board[row - 1][col_index] = player
         # Lock state to prevent further moves for this player's turn
         self.is_current_player_turn_completed = True
         # Check for win state
@@ -108,13 +107,30 @@ class TicTacToe:
       return False
     return False
 
-  def make_ai_move(self, row: int, col: Column) -> bool:
-    """Make a move for the AI player."""
-    return self._make_player_move(self.ai_player, row, col)
+  async def make_ai_move(self, move: PlayerMove) -> bool:
+    """
+    This method is called by the agent to make a move for the AI player.
 
-  def make_human_move(self, row: int, col: Column) -> bool:
+    Args:
+      move: PlayerMove object containing the row and column of the move to make
+      move: PlayerMove = {row: int, col: Literal["a", "b", "c"]}
+
+    Returns:
+      bool: True if the move was made successfully, False otherwise
+    """
+    print(f"Making AI move: {move.model_dump()}")
+    result = self._make_player_move(self.ai_player, move.row, move.col)
+    if result:
+      await self.sio.emit("AI_MOVE_RESULT", move.model_dump(), to=self.sid)
+    return result
+
+  async def make_human_move(self, move: PlayerMove) -> bool:
     """Make a move for the human player."""
-    return self._make_player_move(self.human_player, row, col)
+    print(f"Making human move: {move.model_dump()}")
+    result = self._make_player_move(self.human_player, move.row, move.col)
+    if result:
+      await self.sio.emit("HUMAN_MOVE_RESULT", move.model_dump(), to=self.sid)
+    return result
 
   def _check_winner_rows(self) -> bool:
     """Private method to check for a winner in any row."""

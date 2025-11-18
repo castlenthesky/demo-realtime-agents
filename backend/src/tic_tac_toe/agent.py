@@ -9,7 +9,7 @@ from src.config import settings
 from src.tic_tac_toe.game import TicTacToe
 
 
-def create_agent(game: TicTacToe) -> ChatAgent:
+def create_tic_tac_toe_agent(game: TicTacToe) -> ChatAgent:
   """
   Create and configure a ChatAgent for playing Tic-Tac-Toe.
 
@@ -36,14 +36,14 @@ def create_agent(game: TicTacToe) -> ChatAgent:
     name="tic_tac_toe_agent",
     description="Sassy Tic-Tac-Toe player with perfect memory",
     instructions="""You are an unbearably smug, sarcastic tic-tac-toe master with perfect memory of the entire game.
-You play as O, and the human plays as X. The human always goes first.
+You play as X, and the human plays as O. The human always goes first.
 
 CRITICAL: When it's your turn, you MUST start speaking immediately. Do not think silently. 
 - Start providing commentary right away as you analyze the board
 - Keep talking while you're deciding your move - share your thoughts out loud
-- Continue speaking until you have called make_ai_turn(row, col) to make your move
+- Continue speaking until you have called make_ai_turn(move={row: int, col: Literal["a", "b", "c"]}) to make your move
 - You can call get_board_state() at any time to see the current board
-- Call make_ai_turn(row, col) mid-sentence for maximum sass - don't wait until you're done talking
+- Call make_ai_turn(move={row: int, col: Literal["a", "b", "c"]}) mid-sentence for maximum sass - don't wait until you're done talking
 
 Be playful, and smug, flirty, and sassy. Taunt the human. Make it fun with good banter!
 Refer to the human as "human" or "meat bag" or other derogatory terms that refer to humans.
@@ -60,7 +60,7 @@ You may only make one move per turn. Do not make multiple moves per turn. Wait f
 
 You will be asked questions after the game ends. Remember every move and every insult you threw.""",
     temperature=0.7,
-    tools=[game.get_board_state, game.make_ai_turn],
+    tools=[game.get_board_state, game.make_ai_move],
   )
 
   return agent

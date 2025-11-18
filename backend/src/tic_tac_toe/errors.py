@@ -1,3 +1,7 @@
+# src/tic_tac_toe/errors.py
+"""Errors for the tic-tac-toe game."""
+
+
 class GameErrorBase(Exception):
   """Base exception for game errors."""
 

@@ -1,9 +1,12 @@
+# src/main.py
+"""Main entry point for the application."""
+
 from fastapi import FastAPI
 from socketio import ASGIApp, AsyncServer
 
 from src.config import settings
 from src.handlers import ButtonHandler, ConnectionHandler
-from src.tic_tac_toe.handler import TicTacToeHandler
+from src.tic_tac_toe import TicTacToeManager
 
 app = FastAPI(title="Realtime Demo")
 
@@ -44,7 +47,7 @@ async def CLIENT_MESSAGE(sid: str, data: dict | None = None):
 # #########################################################
 # Game Event Handler for Demo
 # #########################################################
-tic_tac_toe_handler = TicTacToeHandler(sio)
+tic_tac_toe_manager = TicTacToeManager(sio)
 
 
 if __name__ == "__main__":
