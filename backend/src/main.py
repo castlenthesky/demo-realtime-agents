@@ -38,10 +38,8 @@ async def PING(sid: str, data: dict | None = None):
 
 
 @sio.event
-async def CLIENT_MESSAGE(sid: str, data: dict | None = None):
-  print(f"CLIENT_MESSAGE event: {sid}", "...responding with SERVER_MESSAGE...")
-
-  await sio.emit("SERVER_MESSAGE", {"message": "Hello from the server!"}, to=sid)
+async def CONNECTION_TEST(sid: str, data: dict | None = None):
+  print(f"CONNECTION_TEST received from client: {sid} with data: {data}")
 
 
 # #########################################################
