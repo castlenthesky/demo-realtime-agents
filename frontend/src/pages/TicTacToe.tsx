@@ -7,35 +7,29 @@ export default function TicTacToe() {
   const socket = useSocket()
 
   // State signals
-  const [board, setBoard] = createSignal<CellValue[][]>([
-    [' ', ' ', ' '],
-    [' ', ' ', ' '],
-    [' ', ' ', ' '],
+  const [board, setBoard] = createSignal<CellValue[]>([
+    null, null, null,
+    null, null, null,
+    null, null, null,
   ])
   const [status, setStatus] = createSignal('Connecting...')
   const [gameOver, setGameOver] = createSignal(false)
 
-  // Convert column index to letter
-  const colIndexToLetter = (index: number): string => {
-    return ['a', 'b', 'c'][index]
-  }
-
-  // Check if it's human's turn (count X vs O)
+  // Check if it's human's turn (O is human, X is AI)
   const isHumanTurn = (): boolean => {
-    const flatBoard = board().flat()
-    const xCount = flatBoard.filter(c => c === 'X').length
-    const oCount = flatBoard.filter(c => c === 'O').length
-    return xCount === oCount && !gameOver()
+    const xCount = board().filter(c => c === 'X').length
+    const oCount = board().filter(c => c === 'O').length
+    return oCount === xCount && !gameOver()
   }
 
   // Handle cell click
-  const handleCellClick = (row: number, col: number) => {
-    const cell = board()[row][col]
+  const handleCellClick = (index: number) => {
+    const cell = board()[index]
 
-    console.log(`👆 Cell clicked: [${row}, ${col}], current value: "${cell}"`)
+    console.log(`👆 Cell clicked: position ${index}, current value: "${cell}"`)
 
     // Validate move
-    if (cell !== ' ') {
+    if (cell !== null) {
       console.log('❌ Cell not empty')
       return
     }
@@ -51,21 +45,16 @@ export default function TicTacToe() {
     console.log('✅ Move is valid, updating board')
 
     // Optimistic update: Update board instantly for immediate feedback
-    const newBoard = board().map((r, i) =>
-      i === row ? r.map((c, j) => j === col ? 'X' : c) : [...r]
-    )
+    const newBoard = board().map((c, i) => i === index ? 'O' : c)
     setBoard(newBoard)
 
     // Update status
     setStatus('AI is thinking...')
 
     // Emit move to server for AI to respond
-    const moveData = {
-      row: row + 1,
-      col: colIndexToLetter(col),
-    }
-    console.log('📤 Emitting human_move:', moveData)
-    socket.emit('human_move', moveData)
+    const moveData = { position: index }
+    console.log('📤 Emitting USER_MOVE:', moveData)
+    socket.emit('USER_MOVE', moveData)
   }
 
   // Handle restart
@@ -74,25 +63,19 @@ export default function TicTacToe() {
     setGameOver(false)
   }
 
-  // Flash animation for AI moves
-  const flashCell = (row: number, col: number) => {
-    const cellId = `cell-${row}-${col}`
-    const element = document.getElementById(cellId)
-    if (element) {
-      element.classList.add('ai-flash')
-      setTimeout(() => {
-        element.classList.remove('ai-flash')
-      }, 600)
-    }
-  }
-
   // Setup socket listeners
   onMount(() => {
     // Emit join_game event to initialize the game on the server
     console.log('🎮 Emitting join_game event')
     socket.emit('join_game')
 
-    socket.on('board_update', (data: { board: CellValue[][] }) => {
+    // Handle board updates from backend (backend sends flat array)
+    socket.on('BOARD_STATE_UPDATED', (boardState: CellValue[]) => {
+      console.log('📋 Received BOARD_STATE_UPDATED:', boardState)
+      setBoard(boardState)
+    })
+
+    socket.on('board_update', (data: { board: CellValue[] }) => {
       console.log('📋 Received board_update:', data.board)
       setBoard(data.board)
     })
@@ -102,14 +85,17 @@ export default function TicTacToe() {
       setStatus(data.text)
     })
 
-    socket.on('ai_tool_executed', (data: { tool: string; row: number; col: string }) => {
+    socket.on('ai_tool_executed', (data: { message: string; board_state: CellValue[]; status: string }) => {
       console.log('🔧 Received ai_tool_executed:', data)
-      if (data.tool === 'make_ai_turn') {
-        // Flash the cell (convert from 1-indexed to 0-indexed)
-        const rowIndex = data.row - 1
-        const colIndex = { a: 0, b: 1, c: 2 }[data.col as 'a' | 'b' | 'c'] ?? 0
-        console.log(`⚡ Flashing cell at [${rowIndex}, ${colIndex}]`)
-        flashCell(rowIndex, colIndex)
+
+      // Update board with AI's move
+      if (data.board_state) {
+        setBoard(data.board_state)
+      }
+
+      // Update status message
+      if (data.message) {
+        setStatus(data.message)
       }
     })
 
@@ -119,7 +105,7 @@ export default function TicTacToe() {
 
       if (data.is_tie) {
         setStatus("It's a tie! Want a rematch?")
-      } else if (data.winner === 'X') {
+      } else if (data.winner === 'O') {
         setStatus('You won! 🎉')
       } else {
         setStatus('AI wins! Better luck next time.')
@@ -132,6 +118,7 @@ export default function TicTacToe() {
 
     // Cleanup listeners
     onCleanup(() => {
+      socket.off('BOARD_STATE_UPDATED')
       socket.off('board_update')
       socket.off('status_update')
       socket.off('ai_tool_executed')

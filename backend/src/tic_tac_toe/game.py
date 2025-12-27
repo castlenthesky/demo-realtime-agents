@@ -1,239 +1,208 @@
-# src/tic_tac_toe/game.py
-"""Game logic for the tic-tac-toe game."""
+from typing import Any, Dict, List, Optional, Tuple
 
-from typing import Literal
-
-from socketio import AsyncServer
-
-import src.tic_tac_toe.errors as errors
-from src.tic_tac_toe.models import PlayerMove
+from src.tic_tac_toe.models import GameStatus, Player
 
 
 class TicTacToe:
-  def __init__(self, sio: AsyncServer, sid: str):
-    self.sio = sio
-    self.sid = sid
-    self.board = [[" " for _ in range(3)] for _ in range(3)]
-    self.ai_player: str = "X"
-    self.human_player: str = "O"
-    self.round_number: int = 1
-    self.is_human_turn: bool = True
-    self.is_current_player_turn_completed: bool = False
-    self.is_game_over: bool = False
-    self.winner: str | None = None
-    self.game_over_reason: str | None = None
+  """
+  A class to manage a Tic-Tac-Toe game, tracking state, moves, wins, and providing structured responses.
+  The board is a flat list of 9 elements (0-8), with None for empty spots.
+  Includes a messages list for game commentary, aligned with chat features but self-contained without external dependencies.
+  """
 
-  async def reset(self):
-    self.board = [[" " for _ in range(3)] for _ in range(3)]
-    self.round_number = 1
-    self.is_human_turn = True
-    self.is_current_player_turn_completed = False
-    self.is_game_over = False
-    self.winner = None
-    self.game_over_reason = None
-    await self.get_board_state()
+  def __init__(self):
+    self.board: List[Optional[Player]] = [None] * 9
+    self.current_player: Player = Player.X
+    self.move_history: List[
+      Dict[str, Any]
+    ] = []  # List of {'turn': int, 'player': Player, 'position': int}
+    self.turn: int = 1  # Starts at 1 for the first move
+    self.messages: List[str] = []  # List of game messages/commentary
 
-  async def get_board_state(self) -> str:
-    board_state = (
-      "    a   b   c\n"
-      + "  ┌───┬───┬───┐\n"
-      + f"1 │ {self.board[0][0]} │ {self.board[0][1]} │ {self.board[0][2]} │\n"
-      + "  ├───┼───┼───┤\n"
-      + f"2 │ {self.board[1][0]} │ {self.board[1][1]} │ {self.board[1][2]} │\n"
-      + "  ├───┼───┼───┤\n"
-      + f"3 │ {self.board[2][0]} │ {self.board[2][1]} │ {self.board[2][2]} │\n"
-      + "  └───┴───┴───┘\n"
-      + f"Round {self.round_number}\n"
-      + f"Current player: {'Human' if self.is_human_turn else 'AI'}\n"
-      + f"Current player turn completed: {'Yes' if self.is_current_player_turn_completed else 'No'}\n"
-      + f"Winner: {'Human' if self.winner == self.human_player else 'AI' if self.winner == self.ai_player else 'None'}\n"
-      + f"Game over: {'Yes' if self.is_game_over else 'No'}\n"
-      + f"{'Game over reason: ' + self.game_over_reason + '\n ' if self.game_over_reason else ''}"
-    )
-    print(board_state)
-    await self.sio.emit("BOARD_STATE_UPDATED", board_state, to=self.sid)
-    return board_state
+  def reset(self) -> Dict[str, Any]:
+    """Reset the game to initial state, clearing messages as well."""
+    self.board = [None] * 9
+    self.current_player = Player.O
+    self.move_history = []
+    self.turn = 1
+    self.messages = []
+    return {
+      "success": True,
+      "status": GameStatus.ONGOING.value,
+      "message": "Game reset successfully.",
+      "board_state": self.get_board(),
+    }
 
-  def _is_player_move_valid(self, player: str, row: int, col: Literal["a", "b", "c"]) -> bool:
-    """Private method to validate a player move."""
-    # Check if it is the player's turn
-    if self.is_human_turn != (player == self.human_player):
-      raise errors.GameInvalidStateError(f"It is not {player}'s turn!")
-    # Check if the player identifier is valid
-    if player not in [self.human_player, self.ai_player]:
-      raise errors.InvalidPlayerError(f"Player must be {self.human_player} or {self.ai_player}")
-    # Check if the current player has already moved
-    if self.is_current_player_turn_completed:
-      raise errors.GameInvalidStateError(f"{player} has already moved this turn!")
-    # Check if the game is already over
-    if self.winner or self.is_game_over:
-      raise errors.GameInvalidStateError("Game is already over")
-    # Check if the row is valid
-    if row > 3 or row < 1:
-      raise errors.InvalidMoveError(f"Invalid row: {row}")
-    # Check if the column is valid
-    if col not in ["a", "b", "c"]:
-      raise errors.InvalidMoveError(f"Invalid column: {col}")
-    # Check if the spot is already taken
-    col_index = {"a": 0, "b": 1, "c": 2}[col]
-    if self.board[row - 1][col_index] != " ":
-      raise errors.InvalidMoveError(f"Row {row}, column {col} is already taken")
-    # If all checks pass, return True to indicate the move is valid
-    return True
+  # Validation methods (grouped for future abstraction, e.g., into a Validator class)
+  def _validate_position(self, position: int) -> bool:
+    """Check if position is within bounds."""
+    return 0 <= position <= 8
 
-  def _make_player_move(self, player: str, row: int, col: Literal["a", "b", "c"]) -> bool:
-    """Private method to make a move for the players."""
-    try:
-      if self._is_player_move_valid(player, row, col):
-        # Update the board with the player's move
-        col_index = {"a": 0, "b": 1, "c": 2}[col]
-        print(f"Updating board at row {row - 1}, column {col_index} with player {player}")
-        self.board[row - 1][col_index] = player
-        # Lock state to prevent further moves for this player's turn
-        self.is_current_player_turn_completed = True
-        # Check for win state
-        is_game_over = self._check_for_game_over()
-        if is_game_over:
-          return True
-        # Increment the round number
-        self.round_number += 1
-        # Switch the current player
-        self.is_human_turn = not self.is_human_turn
-        # Initialize the next player's turn
-        self.is_current_player_turn_completed = False
-        return True
-    except Exception as e:
-      print(f"Error making player move: {e}")
-      return False
-    return False
+  def _validate_empty(self, position: int) -> bool:
+    """Check if the spot is empty."""
+    return self.board[position] is None
 
-  async def make_ai_move(self, move: PlayerMove) -> bool:
+  def _validate_turn(self, player: Player) -> bool:
+    """Check if it's the correct player's turn."""
+    return player == self.current_player
+
+  def make_move(self, player: Player, position: int) -> Dict[str, Any]:
     """
-    This method is called by the agent to make a move for the AI player.
-
-    Args:
-      move: PlayerMove object containing the row and column of the move to make
-      move: PlayerMove = {row: int, col: Literal["a", "b", "c"]}
-
-    Returns:
-      bool: True if the move was made successfully, False otherwise
+    Make a move for the given player at the position.
+    Validates the move, updates the board, logs history, swaps player, checks status, and adds to messages.
+    Returns structured result.
     """
-    print(f"Making AI move: {move.model_dump()}")
-    result = self._make_player_move(self.ai_player, move.row, move.col)
-    if result:
-      await self.sio.emit("AI_MOVE_RESULT", move.model_dump(), to=self.sid)
-    return result
+    # Validation block (for future abstraction)
+    if not self._validate_position(position):
+      return {
+        "success": False,
+        "status": GameStatus.ONGOING.value,
+        "message": f"Invalid position: {position} (must be 0-8).",
+        "board_state": self.get_board(),
+      }
+    if not self._validate_empty(position):
+      return {
+        "success": False,
+        "status": GameStatus.ONGOING.value,
+        "message": f"Position {position} is already taken.",
+        "board_state": self.get_board(),
+      }
+    if not self._validate_turn(player):
+      return {
+        "success": False,
+        "status": GameStatus.ONGOING.value,
+        "message": f"It's not {player.value}'s turn.",
+        "board_state": self.get_board(),
+      }
 
-  async def make_human_move(self, move: PlayerMove) -> bool:
-    """Make a move for the human player."""
-    print(f"Making human move: {move.model_dump()}")
-    result = self._make_player_move(self.human_player, move.row, move.col)
-    if result:
-      await self.sio.emit("HUMAN_MOVE_RESULT", move.model_dump(), to=self.sid)
-    return result
+    # Update board and history
+    self.board[position] = player
+    self.move_history.append({"turn": self.turn, "player": player.value, "position": position})
+    self.turn += 1
 
-  def _check_winner_rows(self) -> bool:
-    """Private method to check for a winner in any row."""
-    for row in self.board:
-      if row.count(self.ai_player) == 3:
-        self.is_game_over = True
-        self.winner = self.ai_player
-        self.game_over_reason = "AI wins"
-        print(f"AI wins by row: {row}")
-        print(self.get_board_state())
-        return True
-      if row.count(self.human_player) == 3:
-        self.is_game_over = True
-        self.winner = self.human_player
-        self.game_over_reason = "Human wins"
-        print(f"Human wins by row: {row}")
-        print(self.get_board_state())
-        return True
-    return False
+    # Swap player
+    self.current_player = Player.O if player == Player.X else Player.X
 
-  def _check_winner_columns(self) -> bool:
-    """Private method to check for a winner in any column."""
-    for col in range(3):
-      if [self.board[row][col] for row in range(3)].count(self.ai_player) == 3:
-        self.is_game_over = True
-        self.winner = self.ai_player
-        self.game_over_reason = "AI wins"
-        print(f"AI wins by column: {col}")
-        print(self.get_board_state())
-        return True
-      if [self.board[row][col] for row in range(3)].count(self.human_player) == 3:
-        self.is_game_over = True
-        self.winner = self.human_player
-        self.game_over_reason = "Human wins"
-        print(f"Human wins by column: {col}")
-        print(self.get_board_state())
-        return True
-    return False
+    # Get status and prepare message
+    status, winner = self.get_game_status()
+    if status == GameStatus.WIN:
+      message = f"Player {winner} wins!"
+    elif status == GameStatus.DRAW:
+      message = "The game is a draw."
+    else:
+      message = f"Move successful. Now {self.current_player.value}'s turn."
 
-  def _check_winner_diagonals(self) -> bool:
-    """Private method to check for a winner on the diagonal."""
-    if [self.board[i][i] for i in range(3)].count(self.ai_player) == 3:
-      self.is_game_over = True
-      self.winner = self.ai_player
-      self.game_over_reason = "AI wins"
-      print(f"AI wins by diagonal: {[self.board[i][i] for i in range(3)]}")
-      print(self.get_board_state())
-      return True
-    if [self.board[i][i] for i in range(3)].count(self.human_player) == 3:
-      self.is_game_over = True
-      self.winner = self.human_player
-      self.game_over_reason = "Human wins"
-      print(f"Human wins by diagonal: {[self.board[i][i] for i in range(3)]}")
-      print(self.get_board_state())
-      return True
-    return False
+    # Add to messages (self-contained commentary)
+    self.messages.append(message)
 
-  def _check_winner_anti_diagonals(self) -> bool:
-    """Private method to check for a winner on the anti-diagonal."""
-    if [self.board[i][2 - i] for i in range(3)].count(self.ai_player) == 3:
-      self.is_game_over = True
-      self.winner = self.ai_player
-      self.game_over_reason = "AI wins"
-      print(f"AI wins by anti-diagonal: {[self.board[i][2 - i] for i in range(3)]}")
-      print(self.get_board_state())
-      return True
-    if [self.board[i][2 - i] for i in range(3)].count(self.human_player) == 3:
-      self.is_game_over = True
-      self.winner = self.human_player
-      self.game_over_reason = "Human wins"
-      print(f"Human wins by anti-diagonal: {[self.board[i][2 - i] for i in range(3)]}")
-      print(self.get_board_state())
-      return True
-    return False
+    return {
+      "success": True,
+      "status": status.value,
+      "message": message,
+      "board_state": self.get_board(),
+    }
 
-  def _check_tie(self) -> bool:
-    """Private method to check for a tie."""
-    if not any(" " in row for row in self.board):
-      self.is_game_over = True
-      self.winner = "Tie"
-      self.game_over_reason = "Tie"
-      print("Game is a tie")
-      print(self.get_board_state())
-      return True
-    return False
+  def take_X_move(self, position: int) -> Dict[str, Any]:
+    """Hardcoded method for AI to make a move as X, calling make_move."""
+    print(f"Taking X move at position: {position}")
+    return self.make_move(Player.X, position)
 
-  def _check_for_game_over(self) -> bool:
-    """Private method to check for game over."""
-    # 1. Check for three in a row, column, or diagonal
-    #   a. Check for three in any row
-    if self._check_winner_rows():
-      return True
-    #   b. Check for three in any column
-    if self._check_winner_columns():
-      return True
-    #   c. Check for three top-left-to-bottom-right diagonal
-    if self._check_winner_diagonals():
-      return True
-    #   d. Check for three top-right-to-bottom-left diagonal
-    if self._check_winner_anti_diagonals():
-      return True
-    # 2. Check if the board is completely filled
-    if self._check_tie():
-      return True
-    # If no winner, the game is not over
-    return False
+  def take_O_move(self, position: int) -> Dict[str, Any]:
+    """Hardcoded method for human or other to make a move as O, calling make_move."""
+    print(f"Taking O move at position: {position}")
+    return self.make_move(Player.O, position)
+
+  # Win check strategies (grouped for future abstraction, e.g., into Strategy pattern if extending to other games)
+  def _check_rows(self) -> Optional[Player]:
+    """Check for a winner in rows."""
+    for i in range(0, 9, 3):
+      if self.board[i] == self.board[i + 1] == self.board[i + 2] and self.board[i] is not None:
+        return self.board[i]
+    return None
+
+  def _check_columns(self) -> Optional[Player]:
+    """Check for a winner in columns."""
+    for i in range(3):
+      if self.board[i] == self.board[i + 3] == self.board[i + 6] and self.board[i] is not None:
+        return self.board[i]
+    return None
+
+  def _check_diagonals(self) -> Optional[Player]:
+    """Check for a winner in diagonals."""
+    if self.board[0] == self.board[4] == self.board[8] and self.board[0] is not None:
+      return self.board[0]
+    if self.board[2] == self.board[4] == self.board[6] and self.board[2] is not None:
+      return self.board[2]
+    return None
+
+  def check_win(self) -> Optional[Player]:
+    """Check if there's a winner using row, column, and diagonal strategies."""
+    return self._check_rows() or self._check_columns() or self._check_diagonals()
+
+  def check_draw(self) -> bool:
+    """Check if the game is a draw (board full, no winner)."""
+    return all(cell is not None for cell in self.board)
+
+  def get_game_status(self) -> Tuple[GameStatus, Optional[str]]:
+    """
+    Get the current game status.
+    Returns (status, winner_value if win else None)
+    """
+    winner = self.check_win()
+    if winner:
+      return GameStatus.WIN, winner.value
+    if self.check_draw():
+      return GameStatus.DRAW, None
+    return GameStatus.ONGOING, None
+
+  def get_board(self) -> List[Optional[str]]:
+    """Get a snapshot of the board (copy), with player values or None."""
+    return [cell.value if cell else None for cell in self.board.copy()]
+
+  def get_board_string(self) -> str:
+    """Get a string representation of the board for display."""
+    board_str = ""
+    for i in range(9):
+      cell = self.board[i]
+      current_mark = cell.value if cell else " "
+      board_str += f" {current_mark} "
+      if (i + 1) % 3 == 0:
+        board_str += "\n-----------\n" if i < 8 else ""
+      else:
+        board_str += "|"
+    return board_str
+
+  def get_current_turn(self) -> str:
+    """Get whose turn it is."""
+    return self.current_player.value
+
+  def get_messages(self) -> List[str]:
+    """Get the list of game messages/commentary."""
+    return self.messages.copy()
+
+  # Position mapping utilities (grouped for future abstraction, e.g., into a Mapper class for different input formats)
+  @staticmethod
+  def pos_to_index(pos_str: str) -> int:
+    """
+    Convert grid position like 'A1' to flat index (0-8).
+    Rows: A=0, B=1, C=2; Columns: 1=0, 2=1, 3=2 (assuming 1-3 for columns).
+    """
+    if len(pos_str) != 2:
+      raise ValueError("Invalid position format. Use e.g., 'A1'.")
+    row_char, col_char = pos_str.upper()
+    row = ord(row_char) - ord("A")
+    col = int(col_char) - 1  # Assuming columns are 1-3
+    if not (0 <= row <= 2 and 0 <= col <= 2):
+      raise ValueError("Position out of bounds.")
+    return row * 3 + col
+
+  @staticmethod
+  def index_to_pos(index: int) -> str:
+    """Convert flat index (0-8) to grid position like 'A1'."""
+    if not 0 <= index <= 8:
+      raise ValueError("Index out of bounds.")
+    row = index // 3
+    col = index % 3
+    row_char = chr(ord("A") + row)
+    col_char = str(col + 1)  # 0->1, 1->2, 2->3
+    return row_char + col_char

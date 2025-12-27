@@ -21,7 +21,7 @@ class Settings(BaseSettings):
   # OpenAI API - Compliant Server Settings
   OPENAI_API_BASE_URL: str = "http://localhost:1234/v1"
   OPENAI_API_MODEL_ID: str = "qwen/qwen3-14b"
-  OPENAI_API_KEY: str = ""
+  OPENAI_API_KEY: str = "placeholder"
 
   @property
   def is_production(self) -> bool:

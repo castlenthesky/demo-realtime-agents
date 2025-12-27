@@ -4,6 +4,7 @@ import { useSocket } from '../context/socket'
 export default function Ping() {
   const socket = useSocket()
   const [messageHistory, setMessageHistory] = createSignal<string[]>([])
+  const [pendingAck, setPendingAck] = createSignal<(() => void) | null>(null)
 
   onMount(() => {
     const handlePong = () => {
@@ -11,17 +12,38 @@ export default function Ping() {
       setMessageHistory(prev => [...prev, 'Received PONG'])
     }
 
-    socket.on('PONG', handlePong)
+    const handleConnectionTest = (data: unknown, ack?: () => void) => {
+      console.log('CONNECTION_TEST received', data)
+      setMessageHistory(prev => [...prev, 'Received CONNECTION_TEST'])
+      
+      // Store the acknowledgment function if provided
+      if (ack) {
+        setPendingAck(() => ack)
+      }
+    }
 
-    // Cleanup listener on component unmount
+    socket.on('PONG', handlePong)
+    socket.on('CONNECTION_TEST', handleConnectionTest)
+
+    // Cleanup listeners on component unmount
     onCleanup(() => {
       socket.off('PONG', handlePong)
+      socket.off('CONNECTION_TEST', handleConnectionTest)
     })
   })
 
   const handlePing = () => {
     socket.emit('PING')
     setMessageHistory(prev => [...prev, 'Emitting PING'])
+  }
+
+  const acknowledgeTest = () => {
+    const ack = pendingAck()
+    if (ack) {
+      ack()
+      setMessageHistory(prev => [...prev, 'Acknowledged CONNECTION_TEST'])
+      setPendingAck(null)
+    }
   }
 
   return (
@@ -31,6 +53,16 @@ export default function Ping() {
       <button onClick={handlePing} class="ping-button">
         PING
       </button>
+      <button 
+        onClick={acknowledgeTest} 
+        class="acknowledge-test-button"
+        disabled={!pendingAck()}
+      >
+        ACKNOWLEDGE TEST
+      </button>
+      {pendingAck() && (
+        <p class="pending-ack-notice">CONNECTION_TEST received - click to acknowledge</p>
+      )}
       <div class="message-history">
         <h3>Message History</h3>
         {messageHistory().length === 0 ? (

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from socketio import ASGIApp, AsyncServer
 
 from src.config import settings
-from src.handlers import ButtonHandler, ConnectionHandler
+from src.handlers import ConnectionHandler
 from src.tic_tac_toe import TicTacToeManager
 
 app = FastAPI(title="Realtime Demo")
@@ -25,21 +25,23 @@ sio_app = ASGIApp(
 # Abstracted Event Handlers
 # #########################################################
 connection_handler = ConnectionHandler(sio)
-button_handler = ButtonHandler(sio)
 
 
 # #########################################################
 # Example Events for Demo
 # #########################################################
 @sio.event
-async def PING(sid: str, data: dict | None = None):
-  print(f"PING event: {sid}")
-  await sio.emit("PONG", {}, to=sid)
+async def CONNECTION_TEST(sid: str, data: dict | None = None):
+  print(f"CONNECTION_TEST received from client: {sid} with data: {data}")
 
 
 @sio.event
-async def CONNECTION_TEST(sid: str, data: dict | None = None):
-  print(f"CONNECTION_TEST received from client: {sid} with data: {data}")
+async def PING(sid: str, data: dict | None = None):
+  print(f"PING event received from client: {sid}, calling CONNECTION_TEST...")
+  result = await sio.call("CONNECTION_TEST", {}, to=sid)
+  print(f"Result from CONNECTION_TEST: {result}")
+  print("Responding with PONG...")
+  await sio.emit("PONG", {"message": "PONG"}, to=sid)
 
 
 # #########################################################

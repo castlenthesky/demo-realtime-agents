@@ -1,6 +1,18 @@
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class GameStatus(Enum):
+  ONGOING = "ongoing"
+  WIN = "win"
+  DRAW = "draw"
+
+
+class Player(Enum):
+  O = "O"  # noqa: E741
+  X = "X"
 
 
 class PlayerMove(BaseModel):
@@ -9,8 +21,7 @@ class PlayerMove(BaseModel):
     populate_by_name=True,
   )
 
-  row: int = Field(..., ge=1, le=3, description="The row of the move (1, 2, or 3)")
-  col: Literal["a", "b", "c"] = Field(..., description="The column of the move (a, b, or c)")
+  position: int = Field(..., ge=0, le=8, description="The flat board position (0-8)")
 
 
 class BoardState(BaseModel):
