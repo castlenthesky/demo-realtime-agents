@@ -1,7 +1,7 @@
-# src/tic_tac_toe/manager.py
+# backend/src/tic_tac_toe/manager.py
 """Manager class for the tic-tac-toe game."""
 
-from agent_framework import ChatAgent, ChatMessage
+from agent_framework import AgentThread, ChatAgent, ChatMessage
 from pydantic import BaseModel, ConfigDict
 from socketio import AsyncServer
 
@@ -10,16 +10,13 @@ from src.tic_tac_toe.game import TicTacToe
 from src.tic_tac_toe.models import GameStatus, PlayerMove
 
 
-class GameSessionData(BaseModel):
+class GameSession(BaseModel):
   model_config = ConfigDict(arbitrary_types_allowed=True)
 
+  session_id: str
   game: TicTacToe
   agent: ChatAgent
-
-
-class GameSession(BaseModel):
-  session_id: str
-  session: GameSessionData
+  thread: AgentThread
 
 
 class TicTacToeManager:
@@ -33,17 +30,20 @@ class TicTacToeManager:
   def _register_handlers(self) -> None:
     """Register all socket event listeners."""
     self.sio.on("connect", self.handle_connect)
-    self.sio.on("GAME_RESET", self.handle_game_reset)
+    self.sio.on("GAME_RESET", self.handle_game_initialization)
     self.sio.on("USER_MOVE", self.handle_user_move)
     self.sio.on("post_game_query", self.handle_post_game_query)
 
+  # This belongs in its own handler, but included here for demo purposes
   async def handle_connect(self, sid: str, environ: dict):
     """Handle client connection and initialize game session."""
+    # User authentication goes here
     print(f"Client connected: {sid}")
-    await self.handle_game_reset(sid)
+    await self.handle_game_initialization(sid)
 
-  async def handle_game_reset(self, sid: str, data: dict = {}):
-    """Handle game reset events."""
+  # Initialize a new game session
+  async def handle_game_initialization(self, sid: str, data: dict = {}):
+    """Handle game initialization events."""
     print(f"🔧 Game reset event: {sid}")
     # 1. Find the game session by sid in the game_sessions dictionary (creating it, if it doesn't exist)
     game_session = self.game_sessions.get(sid)
@@ -55,30 +55,33 @@ class TicTacToeManager:
       # Create the game session
       game_session = GameSession(
         session_id=sid,
-        session=GameSessionData(game=game, agent=agent),
+        game=game,
+        agent=agent,
+        thread=AgentThread(),
       )
       self.game_sessions[sid] = game_session
     else:
       # Reset the game in the game session
       # TODO: Kill running thread if necessary
-      game_session.session.game.reset()  # Sync call
-      game_session.session.agent = create_tic_tac_toe_agent(game_session.session.game)
+      game_session.game.reset()  # Sync call
+      game_session.agent = create_tic_tac_toe_agent(game_session.game)
     # Emit updated board state after reset
-    await self.sio.emit("BOARD_STATE_UPDATED", game_session.session.game.get_board(), to=sid)
+    await self.sio.emit("BOARD_STATE_UPDATED", game_session.game.get_board(), to=sid)
     return True
 
+  # Handle a user move
   async def handle_user_move(self, sid: str, data: dict = {}):
     """Handle user move events."""
-    # 0. Process the user move data
+    # 0. Validate the user move data
     user_move = PlayerMove(**data)
-    position = user_move.position
-    # 1. Find the game session by sid in the game_sessions dictionary (creating if not exists by calling reset)
+    position = PlayerMove(**data).position
+    # 1. Find the game session by sid in the game_sessions dictionary (creating if not exists by calling initialization)
     game_session = self.game_sessions.get(sid)
     if not game_session:
-      await self.handle_game_reset(sid)
+      await self.handle_game_initialization(sid)
       game_session = self.game_sessions[sid]
     # 2. Make the move for the user (human as O)
-    result = game_session.session.game.take_O_move(position)  # Sync call
+    result = game_session.game.take_O_move(position)
     if not result["success"]:
       await self.sio.emit("ERROR", {"message": result["message"]}, to=sid)
       return
@@ -87,7 +90,7 @@ class TicTacToeManager:
     await self.sio.emit("USER_MOVE_RESULT", user_move.model_dump(), to=sid)
     await self.sio.emit("BOARD_STATE_UPDATED", result["board_state"], to=sid)
     # 4. If the game is over, emit the appropriate result to the client (win/loss/tie)
-    status, winner = game_session.session.game.get_game_status()
+    status, winner = game_session.game.get_game_status()
     if status != GameStatus.ONGOING:
       if status == GameStatus.DRAW:
         await self.sio.emit("GAME_OVER_RESULT", "Tie", to=sid)
@@ -103,17 +106,17 @@ class TicTacToeManager:
     # Add a counter to prevent infinite loops but also allow for multiple agent calls if needed
     max_agent_runs = 5  # Arbitrary limit to prevent loops
     run_count = 0
-    while game_session.session.game.get_current_turn() == "X" and run_count < max_agent_runs:
+    while game_session.game.get_current_turn() == "X" and run_count < max_agent_runs:
       run_count += 1
       message_text = (
         f"The user has placed their marker at position {user_move.position}. Your turn!"
       )
       print(f"Executing agent turn {run_count}...")
-      async for update in game_session.session.agent.run_stream(
-        messages=[ChatMessage(role="user", text=message_text)]
+      async for update in game_session.agent.run_stream(
+        thread=game_session.thread,
+        messages=[ChatMessage(role="user", text=message_text)],
       ):
         update_dict = update.to_dict()
-        print(update_dict)
         await self.sio.emit("AGENT_STREAM_TOKEN", update_dict, to=sid)
 
         # Check for function_result events in contents
@@ -151,11 +154,11 @@ class TicTacToeManager:
 
       await self.sio.emit(
         "AGENT_MOVE_RESULT",
-        game_session.session.game.get_board(),
+        game_session.game.get_board(),
         to=sid,
       )
       # Check if game over after agent move
-      status, winner = game_session.session.game.get_game_status()
+      status, winner = game_session.game.get_game_status()
       if status != GameStatus.ONGOING:
         if status == GameStatus.DRAW:
           await self.sio.emit("GAME_OVER_RESULT", "Tie", to=sid)
@@ -178,11 +181,12 @@ class TicTacToeManager:
     # Find the game session
     game_session = self.game_sessions.get(sid)
     if not game_session:
-      await self.handle_game_reset(sid)
+      await self.handle_game_initialization(sid)
       game_session = self.game_sessions[sid]
     # Run the agent with the query and stream response as ai_message
-    async for update in game_session.session.agent.run_stream(
-      messages=[ChatMessage(role="user", text=query)]
+    async for update in game_session.agent.run_stream(
+      thread=game_session.thread,
+      messages=[ChatMessage(role="user", text=query)],
     ):
       await self.sio.emit(
         "ai_message", {"text": update.to_dict().get("text", "")}, to=sid

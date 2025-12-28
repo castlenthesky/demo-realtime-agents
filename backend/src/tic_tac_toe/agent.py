@@ -1,4 +1,4 @@
-# src/tic_tac_toe/agent.py
+# backend/src/tic_tac_toe/agent.py
 
 
 from agent_framework import ChatAgent
@@ -53,6 +53,5 @@ def create_tic_tac_toe_agent(game: TicTacToe) -> ChatAgent:
     name="tic_tac_toe_agent",
     description="Sassy Tic-Tac-Toe player with perfect memory",
     instructions=PROMPT,
-    temperature=0.7,
     tools=[game.get_board_string, game.take_X_move],
   )

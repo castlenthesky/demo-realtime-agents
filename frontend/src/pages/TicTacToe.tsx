@@ -1,3 +1,5 @@
+// src/pages/TicTacToe.tsx
+
 import { createSignal, onCleanup, onMount } from 'solid-js'
 import Board, { type CellValue } from '../components/tic_tac_toe/board'
 import GameChat from '../components/tic_tac_toe/game_chat'

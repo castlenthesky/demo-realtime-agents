@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from socketio import ASGIApp, AsyncServer
 
 from src.config import settings
-from src.handlers import ConnectionHandler
 from src.tic_tac_toe import TicTacToeManager
 
 app = FastAPI(title="Realtime Demo")
@@ -20,11 +19,6 @@ sio_app = ASGIApp(
   other_asgi_app=app,
   socketio_path="/socket.io/",
 )
-
-# #########################################################
-# Abstracted Event Handlers
-# #########################################################
-connection_handler = ConnectionHandler(sio)
 
 
 # #########################################################

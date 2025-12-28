@@ -1,3 +1,5 @@
+// frontend/src/components/tic_tac_toe/game_chat.tsx
+
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 import { useSocket } from '../../context/socket'
 

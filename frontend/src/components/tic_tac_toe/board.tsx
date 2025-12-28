@@ -1,3 +1,5 @@
+// frontend/src/components/tic_tac_toe/board.tsx
+
 import { For } from 'solid-js'
 
 export type CellValue = 'X' | 'O' | null
