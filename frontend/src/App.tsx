@@ -11,6 +11,7 @@ function App(props: { children?: any }) {
         <nav>
           <div class="nav-links">
             <A href="/" end>Home</A>
+            <A href="/facts" end>Facts</A>
             <A href="/ping">Ping</A>
             <A href="/tic-tac-toe">Tic Tac Toe</A>
           </div>

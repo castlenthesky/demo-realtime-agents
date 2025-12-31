@@ -680,3 +680,67 @@ main {
 .chat-send-button:active {
   transform: translateY(0);
 }
+
+.facts-list {
+  text-align: left;
+}
+
+.facts-list sup a {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.facts-list sup a:hover {
+  text-decoration: underline;
+}
+
+.bibliography {
+  margin-top: var(--spacing-xl);
+  text-align: left;
+}
+
+.bibliography h2 {
+  font-size: 1.5rem;
+  margin-bottom: var(--spacing-md);
+  color: var(--color-text);
+}
+
+.bibliography-list {
+  list-style: decimal;
+  padding-left: var(--spacing-lg);
+  margin: 0;
+}
+
+.bibliography-list li {
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.6;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--border-radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.bibliography-list li.active {
+  background-color: var(--color-primary-light);
+  border-left: 3px solid var(--color-primary);
+  padding-left: calc(var(--spacing-sm) - 3px);
+  animation: highlightPulse 0.5s ease-out;
+}
+
+@keyframes highlightPulse {
+  0% {
+    background-color: var(--color-primary);
+  }
+  100% {
+    background-color: var(--color-primary-light);
+  }
+}
+
+.bibliography-list a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.bibliography-list a:hover {
+  text-decoration: underline;
+}

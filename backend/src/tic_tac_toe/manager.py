@@ -34,6 +34,50 @@ class TicTacToeManager:
     self.sio.on("USER_MOVE", self.handle_user_move)
     self.sio.on("post_game_query", self.handle_post_game_query)
 
+  def _create_agent_move_tool(self, sid: str, game: TicTacToe):
+    """Create a session-specific tool for agent moves with socket emission."""
+
+    async def agent_make_move(position: int) -> dict:
+      """Agent tool: Make X move at position, update game, and emit socket events."""
+      # Make the move
+      result = game.take_X_move(position)
+
+      if not result["success"]:
+        return result
+
+      # Emit board update to frontend
+      await self.sio.emit(
+        "ai_tool_executed",
+        {
+          "message": result.get("message", ""),
+          "board_state": result.get("board_state", []),
+          "status": result.get("status", ""),
+        },
+        to=sid,
+      )
+
+      # Check if game is over and emit appropriate event
+      status, winner = game.get_game_status()
+      if status != GameStatus.ONGOING:
+        if status == GameStatus.DRAW:
+          await self.sio.emit("GAME_OVER_RESULT", "Tie", to=sid)
+        elif winner == "X":
+          await self.sio.emit("GAME_OVER_RESULT", "AI wins", to=sid)
+        elif winner == "O":
+          await self.sio.emit("GAME_OVER_RESULT", "Human wins", to=sid)
+        else:
+          await self.sio.emit("ERROR", {"message": "Game over reason not found"}, to=sid)
+
+      return result
+
+    # Set function metadata for agent framework
+    agent_make_move.__name__ = "agent_make_move"
+    agent_make_move.__doc__ = (
+      "Make X move at the specified position (0-8). Returns game state and move result."
+    )
+
+    return agent_make_move
+
   # This belongs in its own handler, but included here for demo purposes
   async def handle_connect(self, sid: str, environ: dict):
     """Handle client connection and initialize game session."""
@@ -51,7 +95,9 @@ class TicTacToeManager:
       # Initialize the game services (game, agent, agent_thread)
       game = TicTacToe()
       game.reset()  # Sync call, no await
-      agent = create_tic_tac_toe_agent(game)
+      # Create session-specific agent move tool
+      agent_move_tool = self._create_agent_move_tool(sid, game)
+      agent = create_tic_tac_toe_agent(game, agent_move_tool)
       # Create the game session
       game_session = GameSession(
         session_id=sid,
@@ -64,7 +110,9 @@ class TicTacToeManager:
       # Reset the game in the game session
       # TODO: Kill running thread if necessary
       game_session.game.reset()  # Sync call
-      game_session.agent = create_tic_tac_toe_agent(game_session.game)
+      # Recreate agent move tool for the reset game
+      agent_move_tool = self._create_agent_move_tool(sid, game_session.game)
+      game_session.agent = create_tic_tac_toe_agent(game_session.game, agent_move_tool)
     # Emit updated board state after reset
     await self.sio.emit("BOARD_STATE_UPDATED", game_session.game.get_board(), to=sid)
     return True
@@ -72,7 +120,7 @@ class TicTacToeManager:
   # Handle a user move
   async def handle_user_move(self, sid: str, data: dict = {}):
     """Handle user move events."""
-    # 0. Validate the user move data
+    # 0. Validate the user move data received from the client
     user_move = PlayerMove(**data)
     position = PlayerMove(**data).position
     # 1. Find the game session by sid in the game_sessions dictionary (creating if not exists by calling initialization)
@@ -102,76 +150,36 @@ class TicTacToeManager:
         await self.sio.emit("ERROR", {"message": "Game over reason not found"}, to=sid)
       return
     # 5. If the game is not over, run the agent's response to the user's move
-    # Only run the agent if it is the agent's turn (X's turn)
-    # Add a counter to prevent infinite loops but also allow for multiple agent calls if needed
-    max_agent_runs = 5  # Arbitrary limit to prevent loops
-    run_count = 0
-    while game_session.game.get_current_turn() == "X" and run_count < max_agent_runs:
-      run_count += 1
+    # The agent will call agent_make_move tool which handles emissions
+    if game_session.game.get_current_turn() == "X":
       message_text = (
         f"The user has placed their marker at position {user_move.position}. Your turn!"
       )
-      print(f"Executing agent turn {run_count}...")
+      print("Executing agent turn...")
       async for update in game_session.agent.run_stream(
         thread=game_session.thread,
         messages=[ChatMessage(role="user", text=message_text)],
       ):
-        update_dict = update.to_dict()
-        await self.sio.emit("AGENT_STREAM_TOKEN", update_dict, to=sid)
+        # Stream agent updates to frontend (tool handles board/game-over emissions)
+        print(f"Agent stream token: {update.to_dict()}")
+        update_type = update.to_dict().get("contents", [{}])[0].get("type", "")
+        # Reasoning Chunks
+        if update_type == "text_reasoning":
+          await self.sio.emit("AGENT_REASONING_CHUNK", update.to_dict(), to=sid)
+        # Text Chunks
+        if update_type == "text":
+          await self.sio.emit("AGENT_STREAM_TOKEN", update.to_dict(), to=sid)
+        # Function Calling and Results
+        elif update_type == "function_call":
+          await self.sio.emit("AGENT_FUNCTION_CALL", update.to_dict(), to=sid)
+        elif update_type == "function_result":
+          await self.sio.emit("AGENT_FUNCTION_RESULT", update.to_dict(), to=sid)
 
-        # Check for function_result events in contents
-        contents = update_dict.get("contents", [])
-        for content in contents:
-          if content.get("type") == "function_result":
-            result = content.get("result")
-            print(f"🔧 Function result: {result}")
-
-            # Emit successful moves to the frontend
-            # Handle both dict (with success/message/board_state) and list (just board_state) formats
-            if isinstance(result, dict) and result.get("success"):
-              await self.sio.emit(
-                "ai_tool_executed",
-                {
-                  "message": result.get("message", ""),
-                  "board_state": result.get("board_state", []),
-                  "status": result.get("status", ""),
-                },
-                to=sid,
-              )
-            elif isinstance(result, list):
-              # If result is just a list (board state), emit it as a successful move
-              await self.sio.emit(
-                "ai_tool_executed",
-                {
-                  "message": "Move successful",
-                  "board_state": result,
-                  "status": "ongoing",
-                },
-                to=sid,
-              )
-        # TODO: Add message logging
-      # After agent run, emit updated board
-
-      await self.sio.emit(
-        "AGENT_MOVE_RESULT",
-        game_session.game.get_board(),
-        to=sid,
-      )
-      # Check if game over after agent move
-      status, winner = game_session.game.get_game_status()
-      if status != GameStatus.ONGOING:
-        if status == GameStatus.DRAW:
-          await self.sio.emit("GAME_OVER_RESULT", "Tie", to=sid)
-        elif winner == "X":
-          await self.sio.emit("GAME_OVER_RESULT", "AI wins", to=sid)
-        elif winner == "O":
-          await self.sio.emit("GAME_OVER_RESULT", "Human wins", to=sid)
+        elif update_type == "game_over":
+          await self.sio.emit("AGENT_GAME_OVER", update.to_dict(), to=sid)
         else:
-          await self.sio.emit("ERROR", {"message": "Game over reason not found"}, to=sid)
-        return
-
-    if run_count >= max_agent_runs:
-      await self.sio.emit("ERROR", {"message": "Agent run limit exceeded"}, to=sid)
+          pass
+        await self.sio.emit("AGENT_STREAM_TOKEN", update.to_dict(), to=sid)
 
   async def handle_post_game_query(self, sid: str, data: dict = {}):
     """Handle post-game query events."""
