@@ -7,7 +7,7 @@ from socketio import AsyncServer
 
 from src.tic_tac_toe.agent import create_tic_tac_toe_agent
 from src.tic_tac_toe.game import TicTacToe
-from src.tic_tac_toe.models import GameStatus, PlayerMove
+from src.tic_tac_toe.models import GameStatus, PlayerMoveRequest
 
 
 class GameSession(BaseModel):
@@ -87,8 +87,8 @@ class TicTacToeManager:
 
   # Initialize a new game session
   async def handle_game_initialization(self, sid: str, data: dict = {}):
-    """Handle game initialization events."""
-    print(f"🔧 Game reset event: {sid}")
+    """Handle game initialization events - killing any running thread and resetting the game session."""
+    print(f"Resetting game for client: {sid}")
     # 1. Find the game session by sid in the game_sessions dictionary (creating it, if it doesn't exist)
     game_session = self.game_sessions.get(sid)
     if not game_session:
@@ -121,8 +121,8 @@ class TicTacToeManager:
   async def handle_user_move(self, sid: str, data: dict = {}):
     """Handle user move events."""
     # 0. Validate the user move data received from the client
-    user_move = PlayerMove(**data)
-    position = PlayerMove(**data).position
+    user_move = PlayerMoveRequest(**data)
+    position = PlayerMoveRequest(**data).position
     # 1. Find the game session by sid in the game_sessions dictionary (creating if not exists by calling initialization)
     game_session = self.game_sessions.get(sid)
     if not game_session:
@@ -162,7 +162,8 @@ class TicTacToeManager:
       ):
         # Stream agent updates to frontend (tool handles board/game-over emissions)
         print(f"Agent stream token: {update.to_dict()}")
-        update_type = update.to_dict().get("contents", [{}])[0].get("type", "")
+        contents = update.to_dict().get("contents", [])
+        update_type = contents[0].get("type", "") if contents else ""
         # Reasoning Chunks
         if update_type == "text_reasoning":
           await self.sio.emit("AGENT_REASONING_CHUNK", update.to_dict(), to=sid)
@@ -179,7 +180,6 @@ class TicTacToeManager:
           await self.sio.emit("AGENT_GAME_OVER", update.to_dict(), to=sid)
         else:
           pass
-        await self.sio.emit("AGENT_STREAM_TOKEN", update.to_dict(), to=sid)
 
   async def handle_post_game_query(self, sid: str, data: dict = {}):
     """Handle post-game query events."""
