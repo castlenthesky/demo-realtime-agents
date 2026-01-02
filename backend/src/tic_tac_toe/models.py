@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class GameStatus(Enum):
@@ -43,6 +43,16 @@ class BoardUpdateResult(BaseModel):
   message: str = Field(..., description="The message from the move")
   board_state: List[Optional[Player]] = Field(..., description="The board state")
   status: GameStatus = Field(..., description="The status of the game")
+
+  @field_serializer("board_state")
+  def serialize_board_state(self, board_state: List[Optional[Player]]) -> List[Optional[str]]:
+    """Serialize board state by converting Player enums to their string values."""
+    return [player.value if player is not None else None for player in board_state]
+
+  @field_serializer("status")
+  def serialize_status(self, status: GameStatus) -> str:
+    """Serialize status by converting GameStatus enum to its string value."""
+    return status.value
 
 
 class BoardState(BaseModel):

@@ -2,6 +2,7 @@
 
 import { createSignal, onCleanup, onMount } from 'solid-js'
 import Board, { type CellValue } from '../components/tic_tac_toe/board'
+import { setupTicTacToeEventHandlers } from '../components/tic_tac_toe/event_handlers'
 import GameChat from '../components/tic_tac_toe/game_chat'
 import { useSocket } from '../context/socket'
 
@@ -61,7 +62,7 @@ export default function TicTacToe() {
 
   // Handle restart
   const handleRestart = () => {
-    socket.emit('restart_game')
+    socket.emit('GAME_RESET', {})
     setGameOver(false)
   }
 
@@ -71,62 +72,15 @@ export default function TicTacToe() {
     console.log('🎮 Emitting join_game event')
     socket.emit('join_game')
 
-    // Handle board updates from backend (backend sends flat array)
-    socket.on('BOARD_STATE_UPDATED', (boardState: CellValue[]) => {
-      console.log('📋 Received BOARD_STATE_UPDATED:', boardState)
-      setBoard(boardState)
+    // Setup centralized event handlers
+    const cleanup = setupTicTacToeEventHandlers(socket, {
+      setBoard,
+      setStatus,
+      setGameOver,
     })
 
-    socket.on('board_update', (data: { board: CellValue[] }) => {
-      console.log('📋 Received board_update:', data.board)
-      setBoard(data.board)
-    })
-
-    socket.on('status_update', (data: { text: string }) => {
-      console.log('📢 Received status_update:', data.text)
-      setStatus(data.text)
-    })
-
-    socket.on('ai_tool_executed', (data: { message: string; board_state: CellValue[]; status: string }) => {
-      console.log('🔧 Received ai_tool_executed:', data)
-
-      // Update board with AI's move
-      if (data.board_state) {
-        setBoard(data.board_state)
-      }
-
-      // Update status message
-      if (data.message) {
-        setStatus(data.message)
-      }
-    })
-
-    socket.on('game_over', (data: { winner: string | null; is_tie: boolean }) => {
-      console.log('🏁 Received game_over:', data)
-      setGameOver(true)
-
-      if (data.is_tie) {
-        setStatus("It's a tie! Want a rematch?")
-      } else if (data.winner === 'O') {
-        setStatus('You won! 🎉')
-      } else {
-        setStatus('AI wins! Better luck next time.')
-      }
-    })
-
-    socket.on('invalid_move', (data: { reason: string }) => {
-      console.warn('❌ Invalid move:', data.reason)
-    })
-
-    // Cleanup listeners
-    onCleanup(() => {
-      socket.off('BOARD_STATE_UPDATED')
-      socket.off('board_update')
-      socket.off('status_update')
-      socket.off('ai_tool_executed')
-      socket.off('game_over')
-      socket.off('invalid_move')
-    })
+    // Cleanup listeners on component unmount
+    onCleanup(cleanup)
   })
 
   return (

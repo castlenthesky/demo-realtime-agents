@@ -7,7 +7,7 @@ from socketio import AsyncServer
 
 from src.tic_tac_toe.agent import create_tic_tac_toe_agent
 from src.tic_tac_toe.game import TicTacToe
-from src.tic_tac_toe.models import GameStatus, PlayerMoveRequest
+from src.tic_tac_toe.models import GameStatus, Player, PlayerMoveRequest
 
 
 class GameSession(BaseModel):
@@ -42,16 +42,18 @@ class TicTacToeManager:
       # Make the move
       result = game.take_X_move(position)
 
-      if not result["success"]:
-        return result
+      if not result.success:
+        return result.model_dump(mode="json")
 
       # Emit board update to frontend
+      # Use Pydantic's model_dump with mode='json' to automatically serialize enums
+      result_dict = result.model_dump(mode="json")
       await self.sio.emit(
-        "ai_tool_executed",
+        "AI_TOOL_EXECUTED",
         {
-          "message": result.get("message", ""),
-          "board_state": result.get("board_state", []),
-          "status": result.get("status", ""),
+          "message": result_dict["message"],
+          "board_state": result_dict["board_state"],
+          "status": result_dict["status"],
         },
         to=sid,
       )
@@ -61,14 +63,14 @@ class TicTacToeManager:
       if status != GameStatus.ONGOING:
         if status == GameStatus.DRAW:
           await self.sio.emit("GAME_OVER_RESULT", "Tie", to=sid)
-        elif winner == "X":
+        elif winner == Player.X:
           await self.sio.emit("GAME_OVER_RESULT", "AI wins", to=sid)
-        elif winner == "O":
+        elif winner == Player.O:
           await self.sio.emit("GAME_OVER_RESULT", "Human wins", to=sid)
         else:
           await self.sio.emit("ERROR", {"message": "Game over reason not found"}, to=sid)
 
-      return result
+      return result.model_dump(mode="json")
 
     # Set function metadata for agent framework
     agent_make_move.__name__ = "agent_make_move"
@@ -114,7 +116,9 @@ class TicTacToeManager:
       agent_move_tool = self._create_agent_move_tool(sid, game_session.game)
       game_session.agent = create_tic_tac_toe_agent(game_session.game, agent_move_tool)
     # Emit updated board state after reset
-    await self.sio.emit("BOARD_STATE_UPDATED", game_session.game.get_board(), to=sid)
+    board = game_session.game.get_board()
+    serialized_board = [player.value if player is not None else None for player in board]
+    await self.sio.emit("BOARD_STATE_UPDATED", serialized_board, to=sid)
     return True
 
   # Handle a user move
@@ -130,21 +134,23 @@ class TicTacToeManager:
       game_session = self.game_sessions[sid]
     # 2. Make the move for the user (human as O)
     result = game_session.game.take_O_move(position)
-    if not result["success"]:
-      await self.sio.emit("ERROR", {"message": result["message"]}, to=sid)
+    if not result.success:
+      await self.sio.emit("ERROR", {"message": result.message}, to=sid)
       return
     print(f"🔧 Move result: {result}")
     # 3. Emit the results of the user's move to the client
     await self.sio.emit("USER_MOVE_RESULT", user_move.model_dump(), to=sid)
-    await self.sio.emit("BOARD_STATE_UPDATED", result["board_state"], to=sid)
+    # Use Pydantic's model_dump with mode='json' to automatically serialize enums
+    result_dict = result.model_dump(mode="json")
+    await self.sio.emit("BOARD_STATE_UPDATED", result_dict["board_state"], to=sid)
     # 4. If the game is over, emit the appropriate result to the client (win/loss/tie)
     status, winner = game_session.game.get_game_status()
     if status != GameStatus.ONGOING:
       if status == GameStatus.DRAW:
         await self.sio.emit("GAME_OVER_RESULT", "Tie", to=sid)
-      elif winner == "X":
+      elif winner == Player.X:
         await self.sio.emit("GAME_OVER_RESULT", "AI wins", to=sid)
-      elif winner == "O":
+      elif winner == Player.O:
         await self.sio.emit("GAME_OVER_RESULT", "Human wins", to=sid)
       else:
         await self.sio.emit("ERROR", {"message": "Game over reason not found"}, to=sid)
